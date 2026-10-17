@@ -5,7 +5,7 @@ order: 30
 
 # Stripe: Connect and subscriptions
 
-The contract is glitchr/omnitrade's ([connected accounts](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/connect.md),
+The contract is omniscient/omnitrade's ([connected accounts](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/connect.md),
 [subscriptions](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/subscriptions.md)); this is what Stripe is asked.
 
 ## Connect

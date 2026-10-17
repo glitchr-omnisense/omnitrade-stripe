@@ -106,7 +106,7 @@ $product = $stripe->fetchProduct('prod_Q1x');
 $stripe->supports(\Omnitrade\Request\FetchInventory::class);   // false
 ```
 
-With the harness of glitchr/omnitrade (`core/docker`):
+With the harness of omniscient/omnitrade (`core/docker`):
 
 ```sh
 docker compose run --rm omnitrade catalogue stripe --query=margaux
