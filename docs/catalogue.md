@@ -3,14 +3,14 @@ title: Catalogue
 order: 10
 ---
 
-# Stripe's catalogue
+## Stripe's catalogue
 
 The products kept in Stripe (Products and their Prices), read through the
 [omnitrade catalogue contract](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/catalogue.md).
 Stripe counts no stock: `supports(FetchInventory::class)` is false, `fetchInventory()` throws
 `RequestNotSupportedException`, and the stock stays the site's.
 
-## Installation
+### Setting it up
 
 ```sh
 composer require omnitrade/stripe
@@ -34,7 +34,7 @@ omnitrade:
 The catalogue's reads are plain `GET`s on `https://api.stripe.com` through the HTTP client the
 factory is given (`Authorization: Bearer <api_key>`); the payments still go through omnipay.
 
-## Requests
+### Requests
 
 | Request | What is sent |
 |---|---|
@@ -52,7 +52,7 @@ and `query` with the cursor.
 Search is eventually consistent (a minute or so), limited to 20 requests a second, and not
 offered to accounts in India.
 
-## What is mapped how
+### What is mapped how
 
 | Stripe | omnitrade |
 |---|---|
@@ -77,7 +77,7 @@ offered to accounts in India.
 
 No stock on any variant (`ProductVariant::$stock` is null), no options.
 
-## Webhooks
+### Webhooks
 
 Add `product.created`, `product.updated`, `product.deleted`, `price.created`, `price.updated`,
 `price.deleted` to the webhook endpoint; `notify()` checks `Stripe-Signature` as for Checkout.
@@ -88,7 +88,7 @@ Add `product.created`, `product.updated`, `product.deleted`, `price.created`, `p
 | `price.created`, `price.updated`, `price.deleted` | `$product`: the price's product, read afresh with its prices (two calls); `$reference` the product's id. |
 | `product.deleted` | `$product` null, `$reference` the product's id. |
 
-## Examples
+### Examples
 
 ```php
 $page = $stripe->fetchProducts(updatedSince: $lastSync);
