@@ -47,7 +47,7 @@ final class RefundAction implements ActionInterface, ApiAwareInterface
         if ($request->idempotencyKey) {
             $refund->setIdempotencyKeyHeader($request->idempotencyKey);
         }
-        $response = $refund->send();
+        $response = $this->api->sendOmnipay($refund);
         $data = $response->getData();
         if (!$response->isSuccessful() || empty($data['id']) || \in_array($data['status'] ?? '', ['failed', 'canceled'], true)) {
             throw new ProviderException('stripe', (string) ($response->getMessage() ?? $data['failure_reason'] ?? 'Stripe refused the refund.'), $data['error']['code'] ?? null);
@@ -73,7 +73,7 @@ final class RefundAction implements ActionInterface, ApiAwareInterface
         $intent = $reference;
         $currency = 'EUR';
         if (str_starts_with($reference, 'cs_')) {
-            $session = $this->api->checkout()->fetchTransaction(['transactionReference' => $reference])->send()->getData();
+            $session = $this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $reference]))->getData();
             $currency = strtoupper((string) ($session['currency'] ?? $currency));
             $intent = $session['payment_intent'] ?? null;
             if (\is_array($intent)) {
@@ -83,7 +83,7 @@ final class RefundAction implements ActionInterface, ApiAwareInterface
                 throw new ProviderException('stripe', 'Stripe knows no payment for this session.');
             }
         }
-        $payment = $this->api->intents()->fetchPaymentIntent(['paymentIntentReference' => $intent])->send()->getData();
+        $payment = $this->api->sendOmnipay($this->api->intents()->fetchPaymentIntent(['paymentIntentReference' => $intent]))->getData();
         $currency = strtoupper((string) ($payment['currency'] ?? $currency));
         $charge = $payment['latest_charge'] ?? $payment['charges']['data'][0]['id'] ?? null;
         if (\is_array($charge)) {

@@ -30,7 +30,7 @@ final class FetchTransactionAction implements ActionInterface, ApiAwareInterface
     public function execute(Request $request): void
     {
         \assert($request instanceof FetchTransaction);
-        $data = $this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference])->send()->getData();
+        $data = $this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference]))->getData();
         if (empty($data['id'])) {
             throw new ProviderException('stripe', (string) ($data['error']['message'] ?? 'Stripe knows no such session.'), $data['error']['code'] ?? null);
         }

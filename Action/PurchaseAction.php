@@ -64,7 +64,7 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface
         if ($payment->idempotencyKey) {
             $session->setIdempotencyKeyHeader($payment->idempotencyKey);
         }
-        $data = $session->send()->getData();
+        $data = $this->api->sendOmnipay($session)->getData();
 
         if (empty($data['id']) || empty($data['url'])) {
             throw new ProviderException('stripe', (string) ($data['error']['message'] ?? 'Stripe opened no Checkout session.'), $data['error']['code'] ?? null);

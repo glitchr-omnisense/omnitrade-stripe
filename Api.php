@@ -142,6 +142,21 @@ final class Api
         return $parameters;
     }
 
+    /**
+     * Sends one of omnipay's requests (Checkout, payment intents): a network
+     * failure is a ProviderException, like any other of Stripe's.
+     *
+     * @throws ProviderException
+     */
+    public function sendOmnipay(\Omnipay\Common\Message\RequestInterface $request): \Omnipay\Common\Message\ResponseInterface
+    {
+        try {
+            return $request->send();
+        } catch (\Omnipay\Common\Http\Exception $e) {
+            throw new ProviderException('stripe', 'Stripe request failed: '.$e->getMessage(), null, $e);
+        }
+    }
+
     public function canVerify(): bool
     {
         return null !== $this->webhookSecret && '' !== $this->webhookSecret;
