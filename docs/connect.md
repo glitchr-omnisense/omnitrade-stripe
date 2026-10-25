@@ -3,12 +3,12 @@ title: Connect and subscriptions
 order: 30
 ---
 
-## Stripe: Connect and subscriptions
+# Stripe: Connect and subscriptions
 
 The contract is omniscient/omnitrade's ([connected accounts](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/connect.md),
 [subscriptions](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/subscriptions.md)); this is what Stripe is asked.
 
-### Connect
+## Connect
 
 The platform's own secret key does everything: no `Stripe-Account` header, no
 OAuth. Connect must be activated on the platform's Stripe account (dashboard →
@@ -31,7 +31,7 @@ give the fee back (do those in Stripe's dashboard when needed).
 In some countries a destination charge needs the `card_payments` capability
 with `transfers`: pass `capabilities: ['transfers', 'card_payments']`.
 
-### Subscriptions
+## Subscriptions
 
 | Request | Call |
 |---|---|
@@ -43,7 +43,7 @@ with `transfers`: pass `capabilities: ['transfers', 'card_payments']`.
 The period's dates are read from the subscription, or from its first item
 (where Stripe's newer API versions keep them).
 
-### What is mapped how
+## What is mapped how
 
 `Model\Account`, from Stripe's account:
 
@@ -82,7 +82,7 @@ payment's description as `subscription_data[description]`, and the request's `cu
 The payment's lines, `method`, `notice`, `destination` and Stripe's `payment_methods` and
 `adaptive_pricing` options are not sent for a subscription.
 
-### Events
+## Events
 
 Forward these to the gateway's webhook, the Connect ones included
 (`stripe listen --forward-to … --forward-connect-to …`):
