@@ -6,7 +6,7 @@ order: 10
 # Stripe's catalogue
 
 The products kept in Stripe (Products and their Prices), read through the
-[omnitrade catalogue contract](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/catalogue.md).
+[omnitrade catalogue contract](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/catalogue.md).
 Stripe counts no stock: `supports(FetchInventory::class)` is false, `fetchInventory()` throws
 `RequestNotSupportedException`, and the stock stays the site's.
 
@@ -106,7 +106,7 @@ $product = $stripe->fetchProduct('prod_Q1x');
 $stripe->supports(\Omnitrade\Request\FetchInventory::class);   // false
 ```
 
-With the harness of omniscient/omnitrade (`core/docker`):
+With the harness of omnisense/omnitrade (`core/docker`):
 
 ```sh
 docker compose run --rm omnitrade catalogue stripe --query=margaux

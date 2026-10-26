@@ -1,6 +1,6 @@
 # omnitrade/stripe
 
-Stripe for [omniscient/omnitrade](https://github.com/glitchr-studio/omnitrade): cards and wallets
+Stripe for [omnisense/omnitrade](https://github.com/glitchr-omnisense/omnitrade): cards and wallets
 through Checkout (Stripe's hosted page), what was paid, refunds, the webhook's events, the
 catalogue kept in Stripe's Products and Prices, Connect (Express accounts and destination
 charges) and subscriptions (Checkout in subscription mode, the customer portal).
@@ -26,7 +26,7 @@ key (`sk_test_...`) is test mode.
 composer require omnitrade/stripe
 ```
 
-Requires PHP 8.2, `ext-bcmath`, `omniscient/omnitrade` (1.x), `symfony/http-client` (6.4, 7 or 8),
+Requires PHP 8.2, `ext-bcmath`, `omnisense/omnitrade` (1.x), `symfony/http-client` (6.4, 7 or 8),
 `omnipay/stripe` (^3.2) and `omnipay/common` (^3.0), with `nyholm/psr7`, `php-http/discovery`,
 `psr/http-client` and `psr/http-factory` for the PSR-18 bridge. Omnipay requires
 `symfony/http-foundation` for its own request object: installed with it, loaded only when a
@@ -207,7 +207,7 @@ $stripe->refund($transaction->reference, Money::of(500, 'EUR'), idempotencyKey: 
 ```
 
 The same flow on recorded answers, offline, with its output, is in the core's manual
-([payments](https://github.com/glitchr-studio/omnitrade/blob/1.x/docs/usage-payments.md)). The
+([payments](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/usage-payments.md)). The
 core's Docker harness calls the gateway with the keys in `docker/.env`:
 `docker compose run --rm omnitrade purchase stripe --amount 1990`.
 
