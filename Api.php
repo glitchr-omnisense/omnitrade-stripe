@@ -7,6 +7,7 @@ use Omnipay\Omnipay;
 use Omnipay\Stripe\PaymentIntentsGateway;
 use Omnitrade\Exception\InvalidNotificationException;
 use Omnitrade\Exception\ProviderException;
+use Omnitrade\Http\Redaction;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface as HttpExceptionInterface;
@@ -64,13 +65,15 @@ final class Api
             $status = $response->getStatusCode();
             $data = json_decode($response->getContent(false), true);
         } catch (HttpExceptionInterface $e) {
-            throw new ProviderException('stripe', 'Stripe request failed: '.$e->getMessage(), null, $e);
+            $secrets = $this->secrets();
+
+            throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request failed: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
         if (!\is_array($data)) {
-            throw new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status));
+            throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
         if ($status >= 400 || isset($data['error'])) {
-            throw new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null);
+            throw Redaction::withoutArguments(new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null));
         }
 
         return $data;
@@ -117,13 +120,15 @@ final class Api
             $status = $response->getStatusCode();
             $data = json_decode($response->getContent(false), true);
         } catch (HttpExceptionInterface $e) {
-            throw new ProviderException('stripe', 'Stripe request failed: '.$e->getMessage(), null, $e);
+            $secrets = $this->secrets();
+
+            throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request failed: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
         if (!\is_array($data)) {
-            throw new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status));
+            throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
         if ($status >= 400 || isset($data['error'])) {
-            throw new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null);
+            throw Redaction::withoutArguments(new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null));
         }
 
         return $data;
@@ -154,9 +159,13 @@ final class Api
         try {
             return $request->send();
         } catch (\Omnipay\Common\Http\Exception $e) {
-            throw new ProviderException('stripe', 'Stripe request failed: '.$e->getMessage(), null, $e);
+            $secrets = $this->secrets();
+
+            throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request failed: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         } catch (\Omnipay\Common\Exception\OmnipayException $e) {
-            throw new ProviderException('stripe', 'Stripe request not sent: '.$e->getMessage(), null, $e);
+            $secrets = $this->secrets();
+
+            throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request not sent: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
     }
 
@@ -205,5 +214,15 @@ final class Api
         $gateway->setApiKey($this->apiKey);
 
         return $gateway;
+    }
+
+    /**
+     * What a failure must not carry: the credentials.
+     *
+     * @return list<string>
+     */
+    private function secrets(string ...$more): array
+    {
+        return [$this->apiKey, (string) $this->webhookSecret, ...$more];
     }
 }

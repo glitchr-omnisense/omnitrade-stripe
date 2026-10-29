@@ -218,8 +218,8 @@ Every failure is an `Omnitrade\Exception\ProviderException` whose `provider` is 
 - an HTTP status of 400 or more on a REST call: Stripe's `error.message`, its `error.code` in
   `providerCode` (`resource_missing`);
 - a body that is not JSON: `Stripe answered HTTP <status> with a body that is not JSON.`;
-- a network failure, on a REST call or through omnipay: `Stripe request failed: ...`, the
-  exception as `previous`;
+- a network failure, on a REST call or through omnipay: `Stripe request failed: ...`, a copy of the
+  HTTP client's exception as `previous`;
 - omnipay's answers without what is needed: `Stripe opened no Checkout session.`, `Stripe knows no
   such session.`, `Stripe refused the refund.`, `Stripe knows no payment for this session.`,
   `Stripe knows no charge for this payment.`;
@@ -231,6 +231,12 @@ A missing `api_key` is an `InvalidConfigException` when the gateway is built; `A
 `RequestNotSupportedException` before any call. `fetchProduct()` of an unknown id (Stripe's
 `resource_missing`), or of an address, is `null`. A request omnipay refuses before sending it is a
 `ProviderException` too (`Stripe request not sent: ...`).
+
+No failure carries the secret key: a network failure's message has them masked as `***` (the key
+parameters of a URL too), its previous is a copy of the HTTP client's exception (the same class and
+code, without its request), and no trace of the chain keeps its arguments, where the request's
+options stood ([No secret in a
+failure](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/errors.md#no-secret-in-a-failure)).
 
 ## Verified, and not
 
