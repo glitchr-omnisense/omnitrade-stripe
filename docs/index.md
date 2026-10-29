@@ -72,15 +72,17 @@ omnitrade:
 ```
 
 What a `Payment` is sent as: `reference` is `client_reference_id`; `customer->email`
-`customer_email`; the lines (when they add up) `line_items` with their name, image, unit amount and
-quantity, else one line of the amount named by `description` (else `reference`); `returnUrl` the
+`customer_email`; the lines (when they and `shipping` add up to the amount, with no `discount`)
+`line_items` with their name, image, unit amount and quantity, and `shipping` the session's one
+shipping rate (`shipping_options[0][shipping_rate_data]`, a `fixed_amount` named "Shipping"), else
+one line of the amount named by `description` (else `reference`); `returnUrl` the
 `success_url`, with `session={CHECKOUT_SESSION_ID}` added to its query; `cancelUrl` the
 `cancel_url` (else `returnUrl` with `cancel=1`); `idempotencyKey` the `Idempotency-Key` header;
 `method` `payment_method_types` (one method, over the `payment_methods` option); `notice`
 `custom_text[submit][message]` and the payment intent's `description`; `metadata`, as strings;
 `locale` its first two letters; `destination` and `applicationFee` a destination charge
 ([Connect](connect.md#stripe-connect-and-subscriptions)). Not sent: the customer's other fields, a line's
-`sku`, `reference` and `physical`, `shipping` and `discount` (see the warning below).
+`sku`, `reference` and `physical`, `discount` as such (the amount is one line then, below).
 
 ## Capabilities
 
@@ -104,22 +106,20 @@ quantity, else one line of the amount named by `description` (else `reference`);
 **Purchase.** A Checkout session in `payment` mode, answered PENDING with the session's `url` as
 `redirectUrl`. A payment without `returnUrl` is a `ProviderException` before any call (`A Checkout
 session needs a returnUrl: where Stripe sends the buyer back.`); an answer without an `id` or a
-`url` is one too (`Stripe opened no Checkout session.`, or Stripe's error message). The lines are
-listed when `Payment::linesAddUp()`, else the amount is one line.
-
-> [!WARNING]
-> When the lines add up to the amount through `shipping` or `discount`, only the lines are sent:
-> the session is for the lines' total (24.00 EUR for two lines of 12.00 EUR and 3.50 EUR of
-> shipping making 27.50 EUR). Give the postage as a line and the discount in the lines' prices,
-> or give no lines.
+`url` is one too (`Stripe opened no Checkout session.`, or Stripe's error message). The session
+always charges the payment's amount. The lines are listed when `Payment::linesAddUp()` and there is
+no `discount`, the `shipping` on top of them as the session's shipping rate (two lines of 12.00 EUR
+and 3.50 EUR of shipping: 27.50 EUR). With a `discount`, the amount is one line: Checkout's line
+items take no negative amount, and its `discounts` take only a coupon or a promotion code made
+beforehand ([Create a Checkout Session](https://docs.stripe.com/api/checkout/sessions/create)).
 
 **Fetch.** The session as Stripe has it: `payment_status` `paid` or `no_payment_required` is PAID,
 `status` `expired` EXPIRED, anything else PENDING with the session's `url`. The transaction's
 `message` is the session's `status`, `method` its first `payment_method_types`, `metadata` its
-metadata, `createdAt` its `created`. A refund is read from the session's `payment_intent` only
-when Stripe sends it expanded (`amount_refunded`, or its `latest_charge`'s), as REFUNDED or
-PARTIALLY_REFUNDED with `refunded`; the fetch does not ask Stripe to expand it, so a refunded
-session reads PAID.
+metadata, `createdAt` its `created`. The fetch asks Stripe to expand the session's payment intent
+and its latest charge (`expand[]=payment_intent.latest_charge`): a refund is read from the
+charge's `amount_refunded` (or the intent's, when given), as REFUNDED, or PARTIALLY_REFUNDED when
+less than the session's `amount_total`, with `refunded`.
 
 **Refund.** The reference is the session's id (`cs_...`), a payment intent's (`pi_...`) or a
 charge's (`ch_...`). From a session, the session is read for its payment intent, the intent for
@@ -234,9 +234,10 @@ noted above.
 
 ## Verified, and not
 
-Tested offline, 33 tests on answers shaped as Stripe's API reference gives them:
+Tested offline, 36 tests on answers shaped as Stripe's API reference gives them:
 `Tests/StripeGatewayTest.php` (a Checkout session opened, a session fetched, a refund on its
-charge with its idempotency key, a webhook checked then read, the payment methods),
+charge with its idempotency key, a refunded session fetched REFUNDED, the shipping as Checkout's
+shipping rate and a discount charged as one line, a webhook checked then read, the payment methods),
 `Tests/StripeConnectTest.php` (an Express account opened then completed on Stripe's page, a
 payment sent to a connected account with the platform's fee, the fee's checks, Stripe's errors, a
 subscription started on Checkout, read, stopped and managed, the account and subscription events),
@@ -247,8 +248,8 @@ omnipay's network failures escaping as omnipay's exception; they now go through
 `Api::sendOmnipay()`.
 
 Not verified: no call was made to Stripe, in test mode or live; no recorded answer was captured
-from a real account. Not tested: a refund without an amount (it fails, above), a fetched session
-that was refunded, shipping and discount on Checkout's lines.
+from a real account (the shipping rate and the expanded charge follow Stripe's API reference). Not
+tested: a refund without an amount (it fails, above).
 
 ## Responsibility
 

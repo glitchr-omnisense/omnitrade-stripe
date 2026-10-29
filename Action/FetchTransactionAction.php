@@ -11,7 +11,12 @@ use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
 use Omnitrade\Stripe\Sessions;
 
-/** The Checkout session as Stripe has it now: paid, still open, expired. */
+/**
+ * The Checkout session as Stripe has it now: paid, still open, expired, or
+ * refunded - its payment intent and that intent's latest charge expanded, the
+ * charge's amount_refunded what says so (unexpanded, Stripe gives the intent's
+ * id only).
+ */
 final class FetchTransactionAction implements ActionInterface, ApiAwareInterface
 {
     /** @use ApiAwareTrait<Api> */
@@ -30,7 +35,7 @@ final class FetchTransactionAction implements ActionInterface, ApiAwareInterface
     public function execute(Request $request): void
     {
         \assert($request instanceof FetchTransaction);
-        $data = $this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference]))->getData();
+        $data = $this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference, 'expand' => ['payment_intent.latest_charge']]))->getData();
         if (empty($data['id'])) {
             throw new ProviderException('stripe', (string) ($data['error']['message'] ?? 'Stripe knows no such session.'), $data['error']['code'] ?? null);
         }

@@ -3,7 +3,9 @@
 namespace Omnitrade\Stripe\Tests;
 
 use Omnitrade\Exception\InvalidNotificationException;
+use Omnitrade\Model\Line;
 use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
 use Omnitrade\Model\Status;
 use Omnitrade\Request\Authorize;
 use Omnitrade\Request\Purchase;
@@ -37,6 +39,10 @@ final class StripeGatewayTest extends TestCase
             return match (true) {
                 'POST' === $method && '/v1/checkout/sessions' === $path => new MockResponse(json_encode(self::session('open', 'unpaid') + ['url' => 'https://checkout.stripe.com/c/pay/cs_test_1'])),
                 'GET' === $method && '/v1/checkout/sessions/cs_test_1' === $path => new MockResponse(json_encode(self::session('complete', 'paid') + ['payment_intent' => 'pi_test_1'])),
+                // Stripe gives the payment intent's id unless it is expanded; its charge says what was refunded.
+                'GET' === $method && '/v1/checkout/sessions/cs_test_refunded' === $path => new MockResponse(json_encode(['id' => 'cs_test_refunded'] + self::session('complete', 'paid') + ['payment_intent' => \in_array('payment_intent.latest_charge', self::expanded($url), true)
+                    ? ['id' => 'pi_test_2', 'object' => 'payment_intent', 'amount' => 1250, 'latest_charge' => ['id' => 'ch_test_2', 'object' => 'charge', 'amount' => 1250, 'amount_refunded' => 1250, 'refunded' => true]]
+                    : 'pi_test_2'])),
                 'GET' === $method && '/v1/checkout/sessions/cs_test_gone' === $path => new MockResponse(json_encode(self::session('expired', 'unpaid'))),
                 'GET' === $method && '/v1/payment_intents/pi_test_1' === $path => new MockResponse(json_encode(['id' => 'pi_test_1', 'object' => 'payment_intent', 'currency' => 'eur', 'latest_charge' => 'ch_test_1'])),
                 'POST' === $method && '/v1/charges/ch_test_1/refund' === $path => new MockResponse(json_encode(['id' => 're_test_1', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 500, 'currency' => 'eur'])),
@@ -79,6 +85,73 @@ final class StripeGatewayTest extends TestCase
         self::assertSame(Status::EXPIRED, $gateway->fetch('cs_test_gone')->status);
     }
 
+    /**
+     * The session's payment intent and its latest charge are expanded on a fetch: a
+     * refunded session reads REFUNDED, not PAID. Stripe's expand parameter, nested up to
+     * four levels: https://docs.stripe.com/api/expanding_objects; a charge's
+     * amount_refunded: https://docs.stripe.com/api/charges/object#charge_object-amount_refunded.
+     */
+    public function testARefundedSessionIsFetchedAsRefunded(): void
+    {
+        $transaction = $this->gateway()->fetch('cs_test_refunded');
+
+        self::assertSame(Status::REFUNDED, $transaction->status);
+        self::assertSame(1250, $transaction->refunded?->amount);
+        self::assertContains('payment_intent.latest_charge', self::expanded($this->calls[0][1]));
+    }
+
+    /**
+     * Shipping on top of the lines: the lines listed, the shipping as the session's shipping
+     * rate (shipping_options[][shipping_rate_data], a fixed amount:
+     * https://docs.stripe.com/api/checkout/sessions/create#create_checkout_session-shipping_options),
+     * the session's total the payment's.
+     */
+    public function testACheckoutSessionChargesTheShippingOnTopOfTheLines(): void
+    {
+        $payment = new Payment(
+            amount: Money::of(2750, 'EUR'),
+            reference: 'ORDER-1043',
+            lines: [new Line('Dix heures', Money::of(1200, 'EUR'), 2)],
+            shipping: Money::of(350, 'EUR'),
+            returnUrl: 'https://shop.example/retour',
+        );
+        $this->gateway()->purchase($payment);
+
+        parse_str($this->calls[0][2], $sent);
+        self::assertSame('1200', $sent['line_items'][0]['price_data']['unit_amount']);
+        self::assertSame('2', $sent['line_items'][0]['quantity']);
+        $rate = $sent['shipping_options'][0]['shipping_rate_data'];
+        self::assertSame('fixed_amount', $rate['type']);
+        self::assertSame('350', $rate['fixed_amount']['amount']);
+        self::assertSame('eur', $rate['fixed_amount']['currency']);
+        self::assertSame(2750, self::charged($sent), 'what Stripe charges is the payment\'s amount');
+    }
+
+    /**
+     * A discount: Checkout's line items take no negative amount and a discount needs a coupon
+     * made beforehand (https://docs.stripe.com/api/checkout/sessions/create#create_checkout_session-discounts),
+     * so the amount is charged as one line, under the payment's description.
+     */
+    public function testACheckoutSessionChargesTheAmountWhenTheLinesBalanceOnlyWithADiscount(): void
+    {
+        $payment = new Payment(
+            amount: Money::of(2750, 'EUR'),
+            reference: 'ORDER-1044',
+            description: 'Commande n° 1044',
+            lines: [new Line('Dix heures', Money::of(3000, 'EUR'))],
+            shipping: Money::of(490, 'EUR'),
+            discount: Money::of(740, 'EUR'),
+            returnUrl: 'https://shop.example/retour',
+        );
+        $this->gateway()->purchase($payment);
+
+        parse_str($this->calls[0][2], $sent);
+        self::assertCount(1, $sent['line_items']);
+        self::assertSame('Commande n° 1044', $sent['line_items'][0]['price_data']['product_data']['name']);
+        self::assertArrayNotHasKey('shipping_options', $sent, 'the shipping is inside the one line');
+        self::assertSame(2750, self::charged($sent));
+    }
+
     public function testARefundGoesOnTheSessionsChargeWithItsIdempotencyKey(): void
     {
         $refund = $this->gateway()->refund('cs_test_1', Money::of(500, 'EUR'), 'refund-42');
@@ -115,6 +188,25 @@ final class StripeGatewayTest extends TestCase
         $methods = $this->gateway()->paymentMethods();
         self::assertSame('card', $methods[0]->code);
         self::assertContains('apple_pay', array_map(fn ($m) => $m->code, $methods));
+    }
+
+    /** @return list<string> the expand[] of a URL's query */
+    private static function expanded(string $url): array
+    {
+        parse_str((string) parse_url($url, \PHP_URL_QUERY), $query);
+
+        return array_values((array) ($query['expand'] ?? []));
+    }
+
+    /** What Stripe charges for a session sent as $sent: its lines, plus its shipping rate. */
+    private static function charged(array $sent): int
+    {
+        $total = 0;
+        foreach ($sent['line_items'] as $line) {
+            $total += (int) $line['price_data']['unit_amount'] * (int) $line['quantity'];
+        }
+
+        return $total + (int) ($sent['shipping_options'][0]['shipping_rate_data']['fixed_amount']['amount'] ?? 0);
     }
 
     private static function session(string $status, string $paymentStatus): array

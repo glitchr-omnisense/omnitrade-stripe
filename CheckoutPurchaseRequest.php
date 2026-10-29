@@ -16,6 +16,7 @@ use Omnipay\Stripe\Message\Checkout\PurchaseRequest;
  *   notice               a mention on the page and the receipt (why no VAT...)
  *   destination          a connected account the payment is passed on to (Connect destination charge)
  *   applicationFee       what the platform keeps of it, in minor units
+ *   shippingOptions      shipping_options: the shipping rate charged on top of the lines
  *
  * The methods to insist on (paymentMethodTypes) and the Idempotency-Key header
  * (setIdempotencyKeyHeader) are the parent's.
@@ -32,6 +33,10 @@ class CheckoutPurchaseRequest extends PurchaseRequest
     public function setDestination(?string $value): self { return $this->setParameter('destination', $value); }
     public function getApplicationFee(): ?int { return $this->getParameter('applicationFee'); }
     public function setApplicationFee(?int $value): self { return $this->setParameter('applicationFee', $value); }
+    /** @return list<array<string, mixed>>|null */
+    public function getShippingOptions(): ?array { return $this->getParameter('shippingOptions'); }
+    /** @param list<array<string, mixed>>|null $value */
+    public function setShippingOptions(?array $value): self { return $this->setParameter('shippingOptions', $value); }
     public function getNotice(): ?string { return $this->getParameter('notice'); }
     public function setNotice(?string $value): self { return $this->setParameter('notice', $value); }
 
@@ -48,6 +53,9 @@ class CheckoutPurchaseRequest extends PurchaseRequest
         }
         if ($this->getClientReferenceId()) {
             $data['client_reference_id'] = $this->getClientReferenceId();
+        }
+        if ($this->getShippingOptions()) {
+            $data['shipping_options'] = $this->getShippingOptions();
         }
         if ($this->getMetadata()) {
             $data['metadata'] = $this->getMetadata();

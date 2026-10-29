@@ -15,8 +15,11 @@ use Omnitrade\Stripe\Sessions;
 /**
  * A Checkout session: Stripe's hosted page, the buyer sent to it (PENDING with
  * the page's URL); notify() or fetch() then says whether they paid. The lines
- * are listed on the page when they add up to the amount, else the amount is
- * one line under the payment's description.
+ * are listed on the page when they and the shipping add up to the amount, the
+ * shipping as the session's shipping rate; else (a discount among them, which
+ * Checkout takes only as a coupon made beforehand, or lines that do not add
+ * up) the amount is one line under the payment's description. Either way the
+ * session charges the payment's amount.
  *
  * A payment with a destination is a Connect destination charge: taken by the
  * platform, transferred to the connected account, the application fee kept.
@@ -48,6 +51,7 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface
         $session = $this->api->checkout()->purchase([
             'mode' => 'payment',
             'line_items' => self::lines($payment),
+            'shippingOptions' => self::shipping($payment),
             'customerEmail' => $payment->customer?->email,
             'clientReferenceId' => $payment->reference,
             'notice' => $payment->notice,
@@ -73,11 +77,11 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface
         $request->setResult(Sessions::transaction($data));
     }
 
-    /** @return list<array<string, mixed>> */
+    /** @return list<array<string, mixed>> the session's line items, which with shipping() charge the payment's amount */
     public static function lines(Payment $payment): array
     {
         $currency = strtolower($payment->amount->currency);
-        if ($payment->linesAddUp()) {
+        if (self::listed($payment)) {
             $lines = [];
             foreach ($payment->lines as $line) {
                 $lines[] = [
@@ -101,6 +105,34 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface
                 'product_data' => ['name' => $payment->description ?? $payment->reference],
             ],
         ]];
+    }
+
+    /**
+     * The shipping as the session's one shipping rate, a fixed amount, when the
+     * lines are listed and there is shipping to pay; else null (it is inside the
+     * one line).
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public static function shipping(Payment $payment): ?array
+    {
+        if (!self::listed($payment) || null === $payment->shipping || $payment->shipping->amount <= 0) {
+            return null;
+        }
+
+        return [[
+            'shipping_rate_data' => [
+                'type' => 'fixed_amount',
+                'display_name' => 'Shipping',
+                'fixed_amount' => ['amount' => $payment->shipping->amount, 'currency' => strtolower($payment->shipping->currency)],
+            ],
+        ]];
+    }
+
+    /** Whether the lines are listed: they and the shipping add up to the amount, with no discount to take off. */
+    private static function listed(Payment $payment): bool
+    {
+        return $payment->linesAddUp() && ($payment->discount?->amount ?? 0) <= 0;
     }
 
     private static function withQuery(string $url, array $query): string
