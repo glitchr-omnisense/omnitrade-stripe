@@ -17,7 +17,8 @@ use Omnitrade\Stripe\Api;
  * Money back on what a Checkout session was paid with: its payment intent's
  * charge. The reference is the session's id (cs_...), or a payment intent's
  * (pi_...) or a charge's (ch_...) directly. The idempotency key makes the
- * same refund asked twice happen once.
+ * same refund asked twice happen once. Without an amount, the whole charge
+ * (what is left of it) is refunded.
  */
 final class RefundAction implements ActionInterface, ApiAwareInterface
 {
@@ -40,17 +41,23 @@ final class RefundAction implements ActionInterface, ApiAwareInterface
         [$charge, $currency] = $this->charge($request->reference);
         $currency = $request->amount?->currency ?? $currency;
 
-        $refund = $this->api->checkout()->refund(['transactionReference' => $charge, 'currency' => $currency]);
-        if ($request->amount) {
+        if (null === $request->amount) {
+            // The whole charge: Stripe's Create a refund with no amount (omnipay's refund requires one).
+            $data = $this->api->post('/v1/refunds', ['charge' => $charge], $request->idempotencyKey);
+            if (empty($data['id']) || \in_array($data['status'] ?? '', ['failed', 'canceled'], true)) {
+                throw new ProviderException('stripe', (string) ($data['failure_reason'] ?? 'Stripe refused the refund.'));
+            }
+        } else {
+            $refund = $this->api->checkout()->refund(['transactionReference' => $charge, 'currency' => $currency]);
             $refund->setAmountInteger($request->amount->amount);
-        }
-        if ($request->idempotencyKey) {
-            $refund->setIdempotencyKeyHeader($request->idempotencyKey);
-        }
-        $response = $this->api->sendOmnipay($refund);
-        $data = $response->getData();
-        if (!$response->isSuccessful() || empty($data['id']) || \in_array($data['status'] ?? '', ['failed', 'canceled'], true)) {
-            throw new ProviderException('stripe', (string) ($response->getMessage() ?? $data['failure_reason'] ?? 'Stripe refused the refund.'), $data['error']['code'] ?? null);
+            if ($request->idempotencyKey) {
+                $refund->setIdempotencyKeyHeader($request->idempotencyKey);
+            }
+            $response = $this->api->sendOmnipay($refund);
+            $data = $response->getData();
+            if (!$response->isSuccessful() || empty($data['id']) || \in_array($data['status'] ?? '', ['failed', 'canceled'], true)) {
+                throw new ProviderException('stripe', (string) ($response->getMessage() ?? $data['failure_reason'] ?? 'Stripe refused the refund.'), $data['error']['code'] ?? null);
+            }
         }
 
         $request->setResult(new RefundModel(

@@ -123,17 +123,13 @@ less than the session's `amount_total`, with `refunded`.
 
 **Refund.** The reference is the session's id (`cs_...`), a payment intent's (`pi_...`) or a
 charge's (`ch_...`). From a session, the session is read for its payment intent, the intent for
-its `latest_charge` (else its first charge), and the charge is refunded through omnipay
-(`POST /v1/charges/{charge}/refund`, the amount in minor units); the refund's `Idempotency-Key`
+its `latest_charge` (else its first charge), and the charge is refunded: with an amount through
+omnipay (`POST /v1/charges/{charge}/refund`, the amount in minor units), without one in full
+(`POST /v1/refunds` with the `charge` alone: Stripe refunds what is left of it,
+[Create a refund](https://docs.stripe.com/api/refunds/create)); the refund's `Idempotency-Key`
 is the request's key. Stripe's `succeeded` is REFUNDED, any other status PENDING; `failed` and
 `canceled` are `ProviderException`s. The `reason` is not sent. The currency is the payment's (EUR
 for a bare `ch_...` without an amount).
-
-> [!WARNING]
-> `refund($reference)` without an amount does not refund the whole payment: omnipay's refund
-> request requires an amount, and its `InvalidRequestException` (`The amount parameter is
-> required`) escapes, before any call, as omnipay's exception rather than a `ProviderException`.
-> Pass the amount: `refund($reference, $transaction->amount)`.
 
 **Payment methods.** No call: the `payment_methods` option, else `card`, `apple_pay`, `google_pay`,
 `link`. Labels and kinds come from a table of eleven codes (`card`; `apple_pay`, `google_pay`,
@@ -229,14 +225,14 @@ Every failure is an `Omnitrade\Exception\ProviderException` whose `provider` is 
 A missing `api_key` is an `InvalidConfigException` when the gateway is built; `Authorize`,
 `Capture`, `VoidAuthorization`, `FetchOrder`, `FetchInventory` and `AffiliateLink` raise
 `RequestNotSupportedException` before any call. `fetchProduct()` of an unknown id (Stripe's
-`resource_missing`), or of an address, is `null`. The refund without an amount is the exception
-noted above.
+`resource_missing`), or of an address, is `null`. A request omnipay refuses before sending it is a
+`ProviderException` too (`Stripe request not sent: ...`).
 
 ## Verified, and not
 
-Tested offline, 36 tests on answers shaped as Stripe's API reference gives them:
+Tested offline, 37 tests on answers shaped as Stripe's API reference gives them:
 `Tests/StripeGatewayTest.php` (a Checkout session opened, a session fetched, a refund on its
-charge with its idempotency key, a refunded session fetched REFUNDED, the shipping as Checkout's
+charge with its idempotency key, a refund without an amount in full, a refunded session fetched REFUNDED, the shipping as Checkout's
 shipping rate and a discount charged as one line, a webhook checked then read, the payment methods),
 `Tests/StripeConnectTest.php` (an Express account opened then completed on Stripe's page, a
 payment sent to a connected account with the platform's fee, the fee's checks, Stripe's errors, a
@@ -248,8 +244,8 @@ omnipay's network failures escaping as omnipay's exception; they now go through
 `Api::sendOmnipay()`.
 
 Not verified: no call was made to Stripe, in test mode or live; no recorded answer was captured
-from a real account (the shipping rate and the expanded charge follow Stripe's API reference). Not
-tested: a refund without an amount (it fails, above).
+from a real account (the shipping rate, the expanded charge and the full refund follow Stripe's
+API reference).
 
 ## Responsibility
 

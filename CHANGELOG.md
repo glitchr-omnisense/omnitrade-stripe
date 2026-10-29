@@ -3,6 +3,10 @@
 ## Unreleased (1.x)
 
 ### Fixed
+- `refund($reference)` without an amount refunds the whole charge (`POST /v1/refunds` with the
+  charge alone), where omnipay's `InvalidRequestException` ("The amount parameter is required")
+  escaped before any call. Any request omnipay refuses before sending it is a `ProviderException`
+  now (`Api::sendOmnipay()`).
 - A Checkout session charges the payment's amount when its lines add up to it only with
   `Payment::$shipping` or `::$discount`: the shipping is sent as the session's shipping rate
   (`shipping_options[0][shipping_rate_data]`, a fixed amount) on top of the listed lines, and a

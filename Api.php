@@ -144,7 +144,8 @@ final class Api
 
     /**
      * Sends one of omnipay's requests (Checkout, payment intents): a network
-     * failure is a ProviderException, like any other of Stripe's.
+     * failure, or a request omnipay refuses before sending it (a parameter
+     * missing), is a ProviderException, like any other of Stripe's.
      *
      * @throws ProviderException
      */
@@ -154,6 +155,8 @@ final class Api
             return $request->send();
         } catch (\Omnipay\Common\Http\Exception $e) {
             throw new ProviderException('stripe', 'Stripe request failed: '.$e->getMessage(), null, $e);
+        } catch (\Omnipay\Common\Exception\OmnipayException $e) {
+            throw new ProviderException('stripe', 'Stripe request not sent: '.$e->getMessage(), null, $e);
         }
     }
 

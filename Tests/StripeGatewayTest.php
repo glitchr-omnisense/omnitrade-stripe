@@ -45,6 +45,7 @@ final class StripeGatewayTest extends TestCase
                     : 'pi_test_2'])),
                 'GET' === $method && '/v1/checkout/sessions/cs_test_gone' === $path => new MockResponse(json_encode(self::session('expired', 'unpaid'))),
                 'GET' === $method && '/v1/payment_intents/pi_test_1' === $path => new MockResponse(json_encode(['id' => 'pi_test_1', 'object' => 'payment_intent', 'currency' => 'eur', 'latest_charge' => 'ch_test_1'])),
+                'POST' === $method && '/v1/refunds' === $path => new MockResponse(json_encode(['id' => 're_test_2', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 1250, 'currency' => 'eur', 'charge' => 'ch_test_1'])),
                 'POST' === $method && '/v1/charges/ch_test_1/refund' === $path => new MockResponse(json_encode(['id' => 're_test_1', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 500, 'currency' => 'eur'])),
                 default => new MockResponse(json_encode(['error' => ['message' => 'No such resource: '.$method.' '.$path]]), ['http_code' => 404]),
             };
@@ -163,6 +164,23 @@ final class StripeGatewayTest extends TestCase
         self::assertStringEndsWith('/v1/charges/ch_test_1/refund', (string) parse_url($post[1], \PHP_URL_PATH), 'the session -> its payment intent -> its charge');
         parse_str($post[2], $sent);
         self::assertSame('500', $sent['amount']);
+    }
+
+    /**
+     * A refund without an amount is the whole charge: Stripe's Create a refund, the amount left
+     * out ("defaults to the entire charge amount", https://docs.stripe.com/api/refunds/create).
+     */
+    public function testARefundWithoutAnAmountRefundsTheWholeCharge(): void
+    {
+        $refund = $this->gateway()->refund('cs_test_1', null, 'refund-43');
+
+        self::assertSame('re_test_2', $refund->reference);
+        self::assertSame(Status::REFUNDED, $refund->status);
+        self::assertSame(1250, $refund->amount->amount);
+        $post = array_values(array_filter($this->calls, fn ($c) => 'POST' === $c[0]))[0];
+        self::assertSame('/v1/refunds', parse_url($post[1], \PHP_URL_PATH));
+        parse_str($post[2], $sent);
+        self::assertSame(['charge' => 'ch_test_1'], $sent);
     }
 
     public function testANotificationIsCheckedThenRead(): void
