@@ -201,6 +201,20 @@ final class StripeGatewayTest extends TestCase
         $gateway->notify($event, ['Stripe-Signature' => sprintf('t=%d,v1=%s', $time, str_repeat('0', 64))]);
     }
 
+    /**
+     * The amount's currency narrows the methods: SEPA Direct Debit, Bancontact, iDEAL and EPS take
+     * euros only (Stripe's payment method support, https://docs.stripe.com/payments/payment-methods/payment-method-support).
+     */
+    public function testThePaymentMethodsForAnAmountInAnotherCurrency(): void
+    {
+        $gateway = (new StripeGatewayFactory(new MockHttpClient()))->create(['api_key' => 'sk_test_x', 'payment_methods' => ['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna']]);
+        $codes = static fn (array $methods): array => array_map(static fn ($m) => $m->code, $methods);
+
+        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], $codes($gateway->paymentMethods(Money::of(1250, 'EUR'), 'NL')));
+        self::assertSame(['card', 'klarna'], $codes($gateway->paymentMethods(Money::of(1250, 'GBP'), 'GB')));
+        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], $codes($gateway->paymentMethods()), 'no amount: all of them');
+    }
+
     public function testThePaymentMethodsAreWhatCheckoutOffers(): void
     {
         $methods = $this->gateway()->paymentMethods();

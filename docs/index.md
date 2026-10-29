@@ -135,6 +135,10 @@ for a bare `ch_...` without an amount).
 `link`. Labels and kinds come from a table of eleven codes (`card`; `apple_pay`, `google_pay`,
 `link`, `paypal` wallets; `sepa_debit`, `bancontact`, `ideal`, `eps` banks; `klarna`,
 `afterpay_clearpay` buy now pay later); another code is labelled from its name, kind `other`.
+Given an amount, its currency narrows the list: `sepa_debit`, `bancontact`, `ideal` and `eps` take
+euros only and are left out of an amount in another currency ([payment method
+support](https://docs.stripe.com/payments/payment-methods/payment-method-support)); the country is
+not read, Stripe choosing on its page by the buyer's.
 
 **Notify.** `Stripe-Signature` is checked first: `t=<timestamp>,v1=<signature>`, the HMAC-SHA256
 of `<timestamp>.<body>` with `webhook_secret`, any `v1` matching, the timestamp within 300
@@ -230,7 +234,7 @@ A missing `api_key` is an `InvalidConfigException` when the gateway is built; `A
 
 ## Verified, and not
 
-Tested offline, 37 tests on answers shaped as Stripe's API reference gives them:
+Tested offline, 38 tests on answers shaped as Stripe's API reference gives them:
 `Tests/StripeGatewayTest.php` (a Checkout session opened, a session fetched, a refund on its
 charge with its idempotency key, a refund without an amount in full, a refunded session fetched REFUNDED, the shipping as Checkout's
 shipping rate and a discount charged as one line, a webhook checked then read, the payment methods),

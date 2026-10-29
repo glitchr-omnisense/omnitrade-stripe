@@ -3,6 +3,8 @@
 ## Unreleased (1.x)
 
 ### Fixed
+- `paymentMethods($for)` reads the amount's currency: SEPA Direct Debit, Bancontact, iDEAL and
+  EPS, which take euros only, are left out of an amount in another currency.
 - `refund($reference)` without an amount refunds the whole charge (`POST /v1/refunds` with the
   charge alone), where omnipay's `InvalidRequestException` ("The amount parameter is required")
   escaped before any call. Any request omnipay refuses before sending it is a `ProviderException`

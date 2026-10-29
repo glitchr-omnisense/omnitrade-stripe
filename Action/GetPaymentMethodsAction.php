@@ -11,6 +11,9 @@ use Omnitrade\Request\Request;
  * What Checkout offers: the methods insisted on in the options, else the
  * card plus the wallets Stripe shows on its own (Apple Pay, Google Pay, Link)
  * - Stripe decides the rest per account, country and currency on its page.
+ * The amount's currency narrows them: the euro-only methods (SEPA Direct
+ * Debit, Bancontact, iDEAL, EPS) are left out of an amount in another
+ * currency (Stripe's payment method support table).
  */
 final class GetPaymentMethodsAction implements ActionInterface
 {
@@ -28,6 +31,9 @@ final class GetPaymentMethodsAction implements ActionInterface
         'afterpay_clearpay' => ['Afterpay / Clearpay', PaymentMethod::BUY_NOW_PAY_LATER],
     ];
 
+    /** Methods that take one currency only. */
+    private const CURRENCIES = ['sepa_debit' => ['EUR'], 'bancontact' => ['EUR'], 'ideal' => ['EUR'], 'eps' => ['EUR']];
+
     /** @param string[] $paymentMethods */
     public function __construct(private readonly array $paymentMethods = [])
     {
@@ -44,6 +50,9 @@ final class GetPaymentMethodsAction implements ActionInterface
         $codes = $this->paymentMethods ?: ['card', 'apple_pay', 'google_pay', 'link'];
         $methods = [];
         foreach ($codes as $code) {
+            if (null !== $request->for && isset(self::CURRENCIES[$code]) && !\in_array($request->for->currency, self::CURRENCIES[$code], true)) {
+                continue;
+            }
             [$label, $kind] = self::KNOWN[$code] ?? [ucfirst(str_replace('_', ' ', $code)), PaymentMethod::OTHER];
             $methods[] = new PaymentMethod($code, $label, $kind);
         }
