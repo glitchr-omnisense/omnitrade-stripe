@@ -38,10 +38,11 @@ the brand; `images` the media. Stripe counts no stock: `fetchInventory()` is not
 `notify()` reads `product.*` and `price.*` into a `Notification` carrying the product. See
 [docs/catalogue.md](docs/catalogue.md).
 
-Credentials: a secret key from the Stripe Dashboard (Developers → API keys), and a webhook
-endpoint for `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
-`checkout.session.expired`, `checkout.session.async_payment_failed` (its signing secret is
-`webhook_secret`). Locally, `stripe listen --forward-to <your webhook URL>` prints one.
+Credentials: a secret key from the Stripe Dashboard (Developers → API keys). The webhook
+endpoint (`checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+`checkout.session.expired`, `checkout.session.async_payment_failed`) is optional, and the
+application registers it itself: `RegisterWebhook($url)` answers its signing secret, to store
+sealed and pass as `webhook_secret` ([docs/index.md](docs/index.md)). No console, no `stripe listen`.
 
 ## Responsibility
 

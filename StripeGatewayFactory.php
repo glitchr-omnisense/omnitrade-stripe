@@ -7,15 +7,18 @@ use Omnitrade\GatewayFactory;
 use Omnitrade\Stripe\Action\AccountLinkAction;
 use Omnitrade\Stripe\Action\CancelSubscriptionAction;
 use Omnitrade\Stripe\Action\CreateAccountAction;
+use Omnitrade\Stripe\Action\DeleteWebhookAction;
 use Omnitrade\Stripe\Action\FetchAccountAction;
 use Omnitrade\Stripe\Action\FetchProductAction;
 use Omnitrade\Stripe\Action\FetchProductsAction;
 use Omnitrade\Stripe\Action\FetchSubscriptionAction;
 use Omnitrade\Stripe\Action\FetchTransactionAction;
+use Omnitrade\Stripe\Action\FetchWebhooksAction;
 use Omnitrade\Stripe\Action\GetPaymentMethodsAction;
 use Omnitrade\Stripe\Action\NotifyAction;
 use Omnitrade\Stripe\Action\PurchaseAction;
 use Omnitrade\Stripe\Action\RefundAction;
+use Omnitrade\Stripe\Action\RegisterWebhookAction;
 use Omnitrade\Stripe\Action\SubscribeAction;
 use Omnitrade\Stripe\Action\SubscriptionPortalAction;
 
@@ -69,6 +72,9 @@ final class StripeGatewayFactory extends GatewayFactory
             'omnitrade.action.subscription' => new FetchSubscriptionAction(),
             'omnitrade.action.subscription_cancel' => new CancelSubscriptionAction(),
             'omnitrade.action.subscription_portal' => new SubscriptionPortalAction(),
+            'omnitrade.action.webhook_register' => new RegisterWebhookAction(),
+            'omnitrade.action.webhooks' => new FetchWebhooksAction(),
+            'omnitrade.action.webhook_delete' => new DeleteWebhookAction(),
             'omnitrade.action.methods' => static fn (Config $c) => new GetPaymentMethodsAction((array) $c['payment_methods']),
         ]);
     }

@@ -40,6 +40,12 @@ final class Api
     ) {
     }
 
+    /** The Stripe-Version every call sends, null for the account's default. */
+    public function apiVersion(): ?string
+    {
+        return $this->apiVersion ?: null;
+    }
+
     public function checkout(): CheckoutGateway
     {
         /** @var CheckoutGateway */

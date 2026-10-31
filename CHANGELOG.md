@@ -2,6 +2,14 @@
 
 ## Unreleased (1.x)
 
+### Added
+
+- The webhook endpoint registered from the application: `RegisterWebhook` (lists
+  `/v1/webhook_endpoints`, deletes the endpoints on the same address, makes one for the four
+  `checkout.session.*` events in the gateway's `api_version`, answers its `whsec_` secret),
+  `FetchWebhooks`, `DeleteWebhook` (true when already gone); `WebhookEndpoints::EVENTS`,
+  `Api::apiVersion()`. Tests on answers shaped as Stripe's (`StripeWebhookEndpointsTest`).
+
 ### Fixed
 
 - Every call names its API version (`Stripe-Version`, the new `api_version` option, `2020-08-27` by

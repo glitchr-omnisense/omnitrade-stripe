@@ -43,8 +43,9 @@ $gateway = (new StripeGatewayFactory($http))->create(['api_key' => '...', 'webho
 - A **secret key** from the Stripe Dashboard (Developers → API keys): `sk_test_...` in test
   mode, `sk_live_...` live. A restricted key works for what it is allowed (the catalogue's reads
   need Products and Prices).
-- A **webhook endpoint** for the events below; its signing secret (`whsec_...`) is
-  `webhook_secret`. Locally, `stripe listen --forward-to <your webhook URL>` prints one.
+- A **webhook endpoint** for the events below, optional (a scheduled `fetch()` catches up):
+  the application registers it itself with `RegisterWebhook` and keeps the signing secret it
+  answers (below, "Registering the webhook"); `webhook_secret` set by hand still works.
 - For Connect, Connect activated on the platform's account (Dashboard → Connect), with Express
   accounts allowed in the holders' countries; for the subscription portal, the customer portal set
   up once (Billing → Customer portal).
@@ -141,6 +142,24 @@ Given an amount, its currency narrows the list: `sepa_debit`, `bancontact`, `ide
 euros only and are left out of an amount in another currency ([payment method
 support](https://docs.stripe.com/payments/payment-methods/payment-method-support)); the country is
 not read, Stripe choosing on its page by the buyer's.
+
+**Registering the webhook.** `RegisterWebhook($url, $events = [])` lists the account's endpoints
+(`GET /v1/webhook_endpoints`, every page), deletes those on the same address, and makes one
+(`POST /v1/webhook_endpoints`) for `$events`, or, none given, the four `checkout.session.*` events
+above (`WebhookEndpoints::EVENTS`). The endpoint's `api_version` is the gateway's `api_version`
+option (`2020-08-27` by default; `null`: the account's default), so its events come in the version
+`notify()` reads. The answer is a `Webhook` whose `secret` is the endpoint's `whsec_...`: Stripe
+gives it at creation only, which is why an address registered again is deleted then made, with a
+new secret. Store it sealed and pass it as `webhook_secret` (`Registry::create('stripe',
+['webhook_secret' => $sealed])`). `FetchWebhooks` lists the endpoints (no secret), `DeleteWebhook($id)`
+removes one (true also when Stripe no longer knows it). Check the address first with
+`Omnitrade\Http\PublicUrl::unreachable()`: Stripe accepts a `localhost` URL and then fails each
+delivery.
+
+```php
+$gateway->execute($request = new RegisterWebhook('https://shop.example.org/payments/webhook'));
+$secret = $request->getWebhook()->secret;   // seal it; never log it
+```
 
 **Notify.** `Stripe-Signature` is checked first: `t=<timestamp>,v1=<signature>`, the HMAC-SHA256
 of `<timestamp>.<body>` with `webhook_secret`, any `v1` matching, the timestamp within 300
