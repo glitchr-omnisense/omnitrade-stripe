@@ -37,6 +37,7 @@ use Omnitrade\Stripe\Action\SubscriptionPortalAction;
  *     adaptive_pricing: false                        # true: Stripe may offer the buyer's own currency
  *     payment_methods: []                            # ['card', 'sepa_debit']: the methods to insist on
  *     active_only: false                             # true: fetchProducts() lists the active products only
+ *     api_version: '2020-08-27'                      # Stripe-Version of every call; null: the account's default
  *
  * No authorizations: Checkout takes the money when the buyer pays (a session
  * in "setup"/"authorize" mode is not offered here).
@@ -53,7 +54,8 @@ final class StripeGatewayFactory extends GatewayFactory
             'adaptive_pricing' => false,
             'payment_methods' => [],
             'active_only' => false,
-            'omnitrade.api' => fn (Config $c) => new Api((string) $c['api_key'], $c['webhook_secret'] ?: null, $this->http),
+            'api_version' => Api::API_VERSION,
+            'omnitrade.api' => fn (Config $c) => new Api((string) $c['api_key'], $c['webhook_secret'] ?: null, $this->http, $c['api_version'] ?: null),
             'omnitrade.action.purchase' => static fn (Config $c) => new PurchaseAction((bool) $c['adaptive_pricing'], (array) $c['payment_methods']),
             'omnitrade.action.fetch' => new FetchTransactionAction(),
             'omnitrade.action.refund' => new RefundAction(),

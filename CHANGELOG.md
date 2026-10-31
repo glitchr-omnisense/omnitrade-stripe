@@ -3,6 +3,13 @@
 ## Unreleased (1.x)
 
 ### Fixed
+
+- Every call names its API version (`Stripe-Version`, the new `api_version` option, `2020-08-27` by
+  default, `Api::API_VERSION`): the Checkout, the refunds and fetches through omnipay/stripe, and the
+  plain calls (catalogue, Connect, subscriptions). Without it Stripe used the account's default, the
+  version current when the account was made: a sandbox made after 2026-10-28 (`2026-10-28.endive`)
+  answered every purchase with "The `payment_method_types` parameter is no longer supported", while
+  older accounts, on `2020-08-27`, worked. `null` keeps the account's default.
 - A `ProviderException` no longer carries the secret key. The message quoted the HTTP client's (the
   whole URL), the previous was the client's own exception, and every trace of the chain kept the
   arguments of the calls under it (the request's options, the headers with the credentials) when

@@ -56,6 +56,7 @@ $gateway = (new StripeGatewayFactory($http))->create(['api_key' => '...', 'webho
 | `api_key` | string | - | yes | the secret key |
 | `webhook_secret` | ?string | `null` | for `notify()` | the endpoint's signing secret; without it every webhook is an `InvalidNotificationException` |
 | `adaptive_pricing` | bool | `false` | no | `true`: Stripe may offer the buyer their own currency on Checkout. Always sent (`adaptive_pricing[enabled]=false` by default): the session is paid in the payment's currency |
+| `api_version` | ?string | `2020-08-27` | no | the `Stripe-Version` of every call (Checkout, refunds, the catalogue, Connect): the version this code is written against. `null`: the account's default, which is the version current when the account was made - a sandbox made after 2026-10-28 refuses the Checkout's `payment_method_types` |
 | `payment_methods` | list of strings | `[]` | no | the Checkout methods to insist on (`['card', 'sepa_debit']`, `payment_method_types`), and what `paymentMethods()` lists; `[]`: Stripe's choice |
 | `active_only` | bool | `false` | no | `true`: `fetchProducts()` lists the active products only ([catalogue](catalogue.md#stripes-catalogue)) |
 
@@ -68,6 +69,7 @@ omnitrade:
                 api_key: '%env(STRIPE_API_KEY)%'               # sk_live_... / sk_test_...
                 webhook_secret: '%env(STRIPE_WEBHOOK_SECRET)%' # whsec_..., for notify()
                 adaptive_pricing: false                        # true: the buyer's own currency may be offered
+                api_version: '2020-08-27'                      # Stripe-Version of every call; null: the account's default
                 payment_methods: []                            # ['card', 'sepa_debit']: the methods to insist on
 ```
 

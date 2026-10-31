@@ -19,17 +19,24 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * secret key. Omnipay talks through the application's HTTP client when one
  * is given (a PSR-18 bridge): the profiler sees the calls, the tests mock them.
  * The catalogue's plain reads (products, prices) go straight through that
- * client, get(), with the secret key as a bearer token.
+ * client, get(), with the secret key as a bearer token. Every call names its
+ * API version (Stripe-Version): the account's default is the one set when
+ * the account was made, and a recent one refuses what this code sends (the
+ * Checkout's payment_method_types since 2026-10-28.endive).
  */
 final class Api
 {
     public const SIGNATURE_HEADER = 'Stripe-Signature';
     public const BASE_URI = 'https://api.stripe.com';
+    /** The version this code is written and run against. */
+    public const API_VERSION = '2020-08-27';
 
     public function __construct(
         private readonly string $apiKey,
         private readonly ?string $webhookSecret = null,
         private readonly ?HttpClientInterface $http = null,
+        /** Stripe-Version on every call; null or "": the account's default */
+        private readonly ?string $apiVersion = self::API_VERSION,
     ) {
     }
 
@@ -58,7 +65,7 @@ final class Api
         try {
             $response = ($this->http ?? HttpClient::create())->request('GET', self::BASE_URI.'/'.ltrim($path, '/'), [
                 'auth_bearer' => $this->apiKey,
-                'headers' => ['Accept' => 'application/json'],
+                'headers' => array_filter(['Accept' => 'application/json', 'Stripe-Version' => $this->apiVersion]),
                 'query' => $query,
                 'timeout' => 30,
             ]);
@@ -113,7 +120,7 @@ final class Api
         try {
             $response = ($this->http ?? HttpClient::create())->request($method, self::BASE_URI.'/'.ltrim($path, '/'), [
                 'auth_bearer' => $this->apiKey,
-                'headers' => array_filter(['Accept' => 'application/json', 'Content-Type' => 'application/x-www-form-urlencoded', 'Idempotency-Key' => $idempotencyKey]),
+                'headers' => array_filter(['Accept' => 'application/json', 'Content-Type' => 'application/x-www-form-urlencoded', 'Idempotency-Key' => $idempotencyKey, 'Stripe-Version' => $this->apiVersion]),
                 'body' => http_build_query(self::withoutNulls($parameters)),
                 'timeout' => 30,
             ]);
@@ -212,6 +219,9 @@ final class Api
     {
         $gateway = Omnipay::create($gateway, $this->http ? new OmnipayClient(new Psr18Client($this->http)) : null);
         $gateway->setApiKey($this->apiKey);
+        if (null !== $this->apiVersion && '' !== $this->apiVersion) {
+            $gateway->setStripeVersion($this->apiVersion);
+        }
 
         return $gateway;
     }

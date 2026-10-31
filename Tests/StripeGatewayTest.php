@@ -19,10 +19,10 @@ final class StripeGatewayTest extends TestCase
 {
     private const SECRET = 'whsec_test';
 
-    /** @var list<array{string, string, string}> method, url, body */
+    /** @var list<array{string, string, string, list<string>}> method, url, body, headers */
     private array $calls = [];
 
-    private function gateway(): \Omnitrade\GatewayInterface
+    private function gateway(array $options = []): \Omnitrade\GatewayInterface
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
             $body = $options['body'] ?? '';
@@ -33,7 +33,7 @@ final class StripeGatewayTest extends TestCase
                 }
                 $body = $chunks;
             }
-            $this->calls[] = [$method, $url, (string) $body];
+            $this->calls[] = [$method, $url, (string) $body, $options['headers'] ?? []];
             $path = (string) parse_url($url, \PHP_URL_PATH);
 
             return match (true) {
@@ -51,7 +51,29 @@ final class StripeGatewayTest extends TestCase
             };
         });
 
-        return (new StripeGatewayFactory($http))->create(['api_key' => 'sk_test_x', 'webhook_secret' => self::SECRET]);
+        return (new StripeGatewayFactory($http))->create($options + ['api_key' => 'sk_test_x', 'webhook_secret' => self::SECRET]);
+    }
+
+    public function testEveryCallNamesItsApiVersion(): void
+    {
+        $gateway = $this->gateway();
+        $gateway->purchase(Fixtures::payment());
+        $gateway->fetch('cs_test_1');
+
+        self::assertNotEmpty($this->calls);
+        foreach ($this->calls as [$method, $url, , $headers]) {
+            self::assertContains('Stripe-Version: 2020-08-27', $headers, $method.' '.$url.': the version this code is written against, not the account\'s default');
+        }
+    }
+
+    public function testTheApiVersionIsAnOption(): void
+    {
+        $this->gateway(['api_version' => '2025-03-31.basil'])->purchase(Fixtures::payment());
+        self::assertContains('Stripe-Version: 2025-03-31.basil', $this->calls[0][3]);
+
+        $this->calls = [];
+        $this->gateway(['api_version' => null])->purchase(Fixtures::payment());
+        self::assertEmpty(preg_grep('/^Stripe-Version:/i', $this->calls[0][3]), 'null: the account\'s default');
     }
 
     public function testAPurchaseOpensACheckoutSessionTheBuyerIsSentTo(): void
