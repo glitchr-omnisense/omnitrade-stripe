@@ -241,6 +241,17 @@ The same flow on recorded answers, offline, with its output, is in the core's ma
 core's Docker harness calls the gateway with the keys in `docker/.env`:
 `docker compose run --rm omnitrade purchase stripe --amount 1990`.
 
+## Usage policy
+
+`policy.json` (omnisense/contracts' schema, named in `composer.json`'s `extra.omnisense.policy`,
+read on 2026-11-10 from Stripe's rate limits page) declares 25 calls a second and 5 Connect
+account creations a second. Those are the sandbox's figures, the stricter ones. Live mode allows
+100 calls and 30 creations a second, and each endpoint 25 a second. The other limits are in its
+notes. A 429 (a rate limit, or a `lock_timeout`, which Stripe processes neither) is a
+`RateLimitedException`, never retried, and Stripe's next calls wait as long, unsent. Checkout
+Sessions, subscriptions, refunds and connected accounts carry the caller's `Idempotency-Key`. See
+omnisense/omnitrade's [Usage policies and rate limits](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/policies.md).
+
 ## Errors
 
 Every failure is an `Omnitrade\Exception\ProviderException` whose `provider` is `stripe`:

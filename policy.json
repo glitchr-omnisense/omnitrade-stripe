@@ -1,0 +1,72 @@
+{
+    "$schema": "https://github.com/glitchr-omnisense/contracts/blob/1.x/resources/usage-policy.schema.json",
+    "provider": "stripe",
+    "rateLimits": [
+        {
+            "max": 25,
+            "window": "second",
+            "scope": "application",
+            "operations": [
+                "purchase",
+                "refund",
+                "fetch",
+                "paymentMethods",
+                "fetchProduct",
+                "fetchProducts",
+                "createAccount",
+                "accountLink",
+                "fetchAccount",
+                "subscribe",
+                "fetchSubscription",
+                "cancelSubscription",
+                "subscriptionPortal",
+                "registerWebhook",
+                "fetchWebhooks",
+                "deleteWebhook"
+            ],
+            "note": "Stripe's global limit in a sandbox, and the default limit of each endpoint in both modes; live mode's global limit is 100 a second. One policy for both modes: the stricter is declared."
+        },
+        {
+            "max": 5,
+            "window": "second",
+            "scope": "application",
+            "operations": [
+                "createAccount"
+            ],
+            "note": "Connect account creations in a sandbox; 30 a second in live mode."
+        }
+    ],
+    "concurrency": null,
+    "rights": {
+        "commercial": "contract",
+        "openSourceRequired": false,
+        "caching": {
+            "permission": "contract",
+            "maxTtl": null
+        },
+        "storage": "contract",
+        "redistribution": "contract",
+        "attribution": {
+            "required": false,
+            "text": null,
+            "url": null,
+            "where": []
+        },
+        "licence": null
+    },
+    "requirements": {
+        "key": true,
+        "userAgent": {
+            "required": false,
+            "pattern": null
+        }
+    },
+    "provenance": {
+        "terms": "https://stripe.com/legal/ssa",
+        "policy": "https://docs.stripe.com/rate-limits",
+        "verifiedAt": "2026-11-10",
+        "declaredBy": "maintainer",
+        "contact": "https://support.stripe.com/contact",
+        "notes": "Limits per account, per mode (docs.stripe.com/rate-limits, read 2026-11-10): global 100 requests a second live, 25 in a sandbox; 25 a second per endpoint unless noted; 1,000 updates an hour per PaymentIntent; Files 20 reads and 20 writes a second; Search 20 reads a second; Payouts 15 creations a second; Connect account creations 30 a second live, 5 in a sandbox; subscriptions 10 new invoices a minute and 20 a day each. Concurrency: 50 requests in flight in live mode by default, not published for sandboxes (not declared). Reads: on average no more than 500 per transaction over 30 days, at least 10,000 a month (not expressible: it depends on the transactions). A 429 carries Stripe-Rate-Limited-Reason; a 429 lock_timeout is not processed either. Writes carry the caller's Idempotency-Key. Use is governed by the Stripe Services Agreement (commercial, storage, redistribution: the contract's)."
+    }
+}

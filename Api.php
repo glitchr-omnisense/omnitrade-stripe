@@ -3,11 +3,13 @@
 namespace Omnitrade\Stripe;
 
 use Omnipay\Common\Http\Client as OmnipayClient;
+use Omnisense\Contracts\Policy\Backoff;
 use Omnipay\Omnipay;
 use Omnipay\Stripe\PaymentIntentsGateway;
 use Omnitrade\Exception\InvalidNotificationException;
 use Omnitrade\Exception\ProviderException;
 use Omnitrade\Http\Redaction;
+use Omnitrade\Http\Throttle;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface as HttpExceptionInterface;
@@ -23,6 +25,11 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * API version (Stripe-Version): the account's default is the one set when
  * the account was made, and a recent one refuses what this code sends (the
  * Checkout's payment_method_types since 2026-10-28.endive).
+ *
+ * Given the gateway's Backoff (the factory's Config::backoff()), no call is
+ * sent while Stripe's wait lasts, and a 429 (a rate limit, or a lock_timeout:
+ * Stripe runs neither) is a RateLimitedException; nothing is retried here.
+ * Every create that takes money carries the caller's Idempotency-Key.
  */
 final class Api
 {
@@ -37,6 +44,8 @@ final class Api
         private readonly ?HttpClientInterface $http = null,
         /** Stripe-Version on every call; null or "": the account's default */
         private readonly ?string $apiVersion = self::API_VERSION,
+        /** The waits Stripe asks for (omnisense/contracts' Backoff), shared by the gateway's calls */
+        private readonly ?Backoff $backoff = null,
     ) {
     }
 
@@ -68,6 +77,7 @@ final class Api
      */
     public function get(string $path, array $query = []): array
     {
+        Throttle::before($this->backoff);
         try {
             $response = ($this->http ?? HttpClient::create())->request('GET', self::BASE_URI.'/'.ltrim($path, '/'), [
                 'auth_bearer' => $this->apiKey,
@@ -76,12 +86,14 @@ final class Api
                 'timeout' => 30,
             ]);
             $status = $response->getStatusCode();
+            $headers = $response->getHeaders(false);
             $data = json_decode($response->getContent(false), true);
         } catch (HttpExceptionInterface $e) {
             $secrets = $this->secrets();
 
             throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request failed: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
+        Throttle::after($this->backoff, 'stripe', $status, $headers, self::refusal($data));
         if (!\is_array($data)) {
             throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
@@ -118,6 +130,7 @@ final class Api
     /** @return array<string, mixed> */
     private function send(string $method, string $path, array $parameters, ?string $idempotencyKey = null): array
     {
+        Throttle::before($this->backoff);
         array_walk_recursive($parameters, static function (&$value): void {
             if (\is_bool($value)) {
                 $value = $value ? 'true' : 'false';
@@ -131,12 +144,14 @@ final class Api
                 'timeout' => 30,
             ]);
             $status = $response->getStatusCode();
+            $headers = $response->getHeaders(false);
             $data = json_decode($response->getContent(false), true);
         } catch (HttpExceptionInterface $e) {
             $secrets = $this->secrets();
 
             throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request failed: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
+        Throttle::after($this->backoff, 'stripe', $status, $headers, self::refusal($data));
         if (!\is_array($data)) {
             throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
@@ -147,7 +162,16 @@ final class Api
         return $data;
     }
 
-    private static function withoutNulls(array $parameters): array
+    /** What a 429's body says: "Stripe answered 429: <its message>", or nothing. */
+    private static function refusal(mixed $data): string
+    {
+        $error = \is_array($data) && \is_array($data['error'] ?? null) ? $data['error'] : [];
+        $message = $error['message'] ?? $error['code'] ?? null;
+
+        return \is_string($message) ? 'Stripe answered 429: '.$message : '';
+    }
+
+        private static function withoutNulls(array $parameters): array
     {
         foreach ($parameters as $key => $value) {
             if (null === $value) {
@@ -169,8 +193,9 @@ final class Api
      */
     public function sendOmnipay(\Omnipay\Common\Message\RequestInterface $request): \Omnipay\Common\Message\ResponseInterface
     {
+        Throttle::before($this->backoff);
         try {
-            return $request->send();
+            $response = $request->send();
         } catch (\Omnipay\Common\Http\Exception $e) {
             $secrets = $this->secrets();
 
@@ -180,6 +205,14 @@ final class Api
 
             throw Redaction::withoutArguments(new ProviderException('stripe', 'Stripe request not sent: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
+        // omnipay gives the body, not the status: Stripe's 429s say rate_limit or lock_timeout.
+        $data = $response->getData();
+        $error = \is_array($data) && \is_array($data['error'] ?? null) ? $data['error'] : [];
+        if (\in_array($error['code'] ?? null, ['rate_limit', 'lock_timeout'], true)) {
+            Throttle::after($this->backoff, 'stripe', 429, [], self::refusal($data));
+        }
+
+        return $response;
     }
 
     public function canVerify(): bool

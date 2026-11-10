@@ -1,0 +1,13 @@
+# PHPStan at the highest level, as the family's harness runs it (docker compose run --rm omnitrade
+# phpstan, in omnisense/omnitrade's docker/). phpstan-baseline.neon holds what was there when
+# PHPStan came in (2026-11-10): it may only shrink.
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: max
+    paths:
+        - .
+    excludePaths:
+        - vendor (?)
+        - docker (?)

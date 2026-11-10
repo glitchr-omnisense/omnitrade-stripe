@@ -20,6 +20,7 @@
         "nyholm/psr7": "^1.8",
         "omnipay/common": "^3.0",
         "omnipay/stripe": "^3.2",
+        "omnisense/contracts": "^1.0@dev",
         "omnisense/omnitrade": "^1.0@dev",
         "php-http/discovery": "^1.14",
         "psr/http-client": "^1.0",
@@ -40,6 +41,11 @@
     "autoload-dev": {
         "psr-4": {
             "Omnitrade\\Stripe\\Tests\\": "Tests/"
+        }
+    },
+    "extra": {
+        "omnisense": {
+            "policy": "policy.json"
         }
     },
     "config": {

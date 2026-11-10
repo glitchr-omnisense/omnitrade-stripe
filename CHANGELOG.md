@@ -3,7 +3,11 @@
 ## Unreleased (1.x)
 
 ### Added
-
+- `policy.json` (`extra.omnisense.policy`): 25 calls a second, 5 Connect account creations a second (the
+  sandbox's, stricter than live mode's 100 and 30), the other limits in its notes; verified 2026-11-10.
+- The gateway's Backoff (omnisense/omnitrade's `Http\Throttle`): no call while Stripe's wait lasts; a
+  429, a rate limit or a `lock_timeout` (through omnipay too, read from the error code), is a
+  `RateLimitedException`, never retried. Requires omnisense/contracts.
 - The gateway's `tags` option (omnisense/omnitrade): `metadata` on the Checkout Session and on its
   payment intent (`payment_intent_data.metadata`, which now also carries the payment's own
   metadata), on a subscription's (`subscription_data.metadata`), on refunds (`RefundRequest`, omnipay's
@@ -19,7 +23,6 @@
   `Api::apiVersion()`. Tests on answers shaped as Stripe's (`StripeWebhookEndpointsTest`).
 
 ### Fixed
-
 - Every call names its API version (`Stripe-Version`, the new `api_version` option, `2020-08-27` by
   default, `Api::API_VERSION`): the Checkout, the refunds and fetches through omnipay/stripe, and the
   plain calls (catalogue, Connect, subscriptions). Without it Stripe used the account's default, the
@@ -46,3 +49,4 @@
 - `fetch()` reads a refunded session REFUNDED (or PARTIALLY_REFUNDED), not PAID: it asks Stripe to
   expand the session's payment intent and its latest charge (`expand[]=payment_intent.latest_charge`),
   whose `amount_refunded` says what was refunded.
+
