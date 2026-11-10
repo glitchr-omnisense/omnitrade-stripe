@@ -12,7 +12,8 @@ use Omnipay\Stripe\Message\Checkout\PurchaseRequest;
  *                        currency, not converted to the buyer's
  *   locale               the page's language
  *   client_reference_id  the merchant's reference (the order's) - the parent's parameter, sent here
- *   metadata             kept by Stripe, given back on every event
+ *   metadata             kept by Stripe on the session and on its payment intent
+ *                        (payment_intent_data.metadata), given back on every event
  *   notice               a mention on the page and the receipt (why no VAT...)
  *   destination          a connected account the payment is passed on to (Connect destination charge)
  *   applicationFee       what the platform keeps of it, in minor units
@@ -59,10 +60,12 @@ class CheckoutPurchaseRequest extends PurchaseRequest
         }
         if ($this->getMetadata()) {
             $data['metadata'] = $this->getMetadata();
+            // The payment intent (and what is read of it later: its charge's refunds, its events) carries them too.
+            $data['payment_intent_data'] = ['metadata' => $this->getMetadata()];
         }
         if ($this->getNotice()) {
             $data['custom_text'] = ['submit' => ['message' => $this->getNotice()]];
-            $data['payment_intent_data'] = ['description' => $this->getNotice()];
+            $data['payment_intent_data'] = ($data['payment_intent_data'] ?? []) + ['description' => $this->getNotice()];
         }
         // Connect, a destination charge: the platform takes the payment, Stripe
         // passes it on to the connected account, less the platform's fee.

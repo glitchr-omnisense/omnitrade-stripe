@@ -5,6 +5,8 @@ namespace Omnitrade\Stripe\Action;
 use Omnitrade\Action\ActionInterface;
 use Omnitrade\Action\ApiAwareInterface;
 use Omnitrade\Action\ApiAwareTrait;
+use Omnitrade\Action\TagsAwareInterface;
+use Omnitrade\Action\TagsAwareTrait;
 use Omnitrade\Request\RegisterWebhook;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
@@ -16,10 +18,11 @@ use Omnitrade\Stripe\WebhookEndpoints;
  * and answers its signing secret - which Stripe gives at creation only. So
  * an address already registered is deleted first, then made again.
  */
-final class RegisterWebhookAction implements ActionInterface, ApiAwareInterface
+final class RegisterWebhookAction implements ActionInterface, ApiAwareInterface, TagsAwareInterface
 {
     /** @use ApiAwareTrait<Api> */
     use ApiAwareTrait;
+    use TagsAwareTrait;
 
     public function __construct()
     {
@@ -45,6 +48,8 @@ final class RegisterWebhookAction implements ActionInterface, ApiAwareInterface
             'enabled_events' => [] === $request->events ? WebhookEndpoints::EVENTS : array_values($request->events),
             'api_version' => $this->api->apiVersion(),
             'description' => 'omnitrade',
+            // The site the endpoint is for, when several share the account (the "tags" option).
+            'metadata' => $this->tags()->merge() ?: null,
         ]))));
     }
 }

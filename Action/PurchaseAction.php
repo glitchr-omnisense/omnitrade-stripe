@@ -5,6 +5,8 @@ namespace Omnitrade\Stripe\Action;
 use Omnitrade\Action\ActionInterface;
 use Omnitrade\Action\ApiAwareInterface;
 use Omnitrade\Action\ApiAwareTrait;
+use Omnitrade\Action\TagsAwareInterface;
+use Omnitrade\Action\TagsAwareTrait;
 use Omnitrade\Exception\ProviderException;
 use Omnitrade\Model\Payment;
 use Omnitrade\Request\Purchase;
@@ -23,11 +25,15 @@ use Omnitrade\Stripe\Sessions;
  *
  * A payment with a destination is a Connect destination charge: taken by the
  * platform, transferred to the connected account, the application fee kept.
+ *
+ * The gateway's tags (the "tags" option: site) and the payment's metadata are
+ * the session's metadata and its payment intent's (payment_intent_data.metadata).
  */
-final class PurchaseAction implements ActionInterface, ApiAwareInterface
+final class PurchaseAction implements ActionInterface, ApiAwareInterface, TagsAwareInterface
 {
     /** @use ApiAwareTrait<Api> */
     use ApiAwareTrait;
+    use TagsAwareTrait;
 
     /** @param string[] $paymentMethods */
     public function __construct(private readonly bool $adaptivePricing = false, private readonly array $paymentMethods = [])
@@ -56,7 +62,7 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface
             'clientReferenceId' => $payment->reference,
             'notice' => $payment->notice,
             'locale' => $payment->locale ? substr($payment->locale, 0, 2) : null,
-            'metadata' => $payment->metadata ? array_map('strval', $payment->metadata) : null,
+            'metadata' => $this->tags()->merge($payment->metadata) ?: null,
             'adaptivePricing' => $this->adaptivePricing,
             'destination' => $payment->destination,
             'applicationFee' => $payment->applicationFee?->amount,

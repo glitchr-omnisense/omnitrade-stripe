@@ -32,6 +32,10 @@ use Omnitrade\Stripe\Sessions;
  * price.created, price.updated and price.deleted the price's product, read
  * afresh (two calls); product.deleted the product's id alone. $reference is
  * the product's id.
+ *
+ * $tags are the event object's metadata (a session's, a payment intent's, a
+ * refund's, a subscription's, an account's; an invoice's subscription's),
+ * the "site" the gateway that made it put there among them.
  */
 final class NotifyAction implements ActionInterface, ApiAwareInterface
 {
@@ -86,6 +90,34 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
             product: $product,
             account: 'account' === ($object['object'] ?? null) ? Accounts::account($object) : null,
             subscription: 'subscription' === ($object['object'] ?? null) ? Accounts::subscription($object) : null,
+            tags: self::tags($object),
         ));
+    }
+
+    /**
+     * The metadata an event's object carries: its own, or for an invoice its
+     * subscription's (subscription_details, parent.subscription_details in
+     * recent API versions).
+     *
+     * @param array<string, mixed> $object
+     *
+     * @return array<string, string>
+     */
+    public static function tags(array $object): array
+    {
+        foreach ([$object['metadata'] ?? null, $object['subscription_details']['metadata'] ?? null, $object['parent']['subscription_details']['metadata'] ?? null] as $metadata) {
+            if (\is_array($metadata) && [] !== $metadata) {
+                $tags = [];
+                foreach ($metadata as $key => $value) {
+                    if (\is_scalar($value)) {
+                        $tags[(string) $key] = (string) $value;
+                    }
+                }
+
+                return $tags;
+            }
+        }
+
+        return [];
     }
 }

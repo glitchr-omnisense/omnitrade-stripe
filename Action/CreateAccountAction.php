@@ -5,6 +5,8 @@ namespace Omnitrade\Stripe\Action;
 use Omnitrade\Action\ActionInterface;
 use Omnitrade\Action\ApiAwareInterface;
 use Omnitrade\Action\ApiAwareTrait;
+use Omnitrade\Action\TagsAwareInterface;
+use Omnitrade\Action\TagsAwareTrait;
 use Omnitrade\Request\CreateAccount;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Accounts;
@@ -14,12 +16,13 @@ use Omnitrade\Stripe\Api;
  * A connected account (POST /v1/accounts): Express by default, in the
  * holder's country, with the capabilities asked for - "transfers" to be
  * sent destination charges, "card_payments" with it where Stripe requires
- * both.
+ * both. Its metadata: the gateway's tags (site), the request's over them.
  */
-final class CreateAccountAction implements ActionInterface, ApiAwareInterface
+final class CreateAccountAction implements ActionInterface, ApiAwareInterface, TagsAwareInterface
 {
     /** @use ApiAwareTrait<Api> */
     use ApiAwareTrait;
+    use TagsAwareTrait;
 
     public function __construct()
     {
@@ -44,7 +47,7 @@ final class CreateAccountAction implements ActionInterface, ApiAwareInterface
             'email' => $request->email,
             'business_type' => $request->businessType,
             'capabilities' => $capabilities,
-            'metadata' => $request->metadata ? array_map('strval', $request->metadata) : null,
+            'metadata' => $this->tags()->merge($request->metadata) ?: null,
         ], $request->idempotencyKey)));
     }
 }

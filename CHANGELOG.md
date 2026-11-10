@@ -4,6 +4,14 @@
 
 ### Added
 
+- The gateway's `tags` option (omnisense/omnitrade): `metadata` on the Checkout Session and on its
+  payment intent (`payment_intent_data.metadata`, which now also carries the payment's own
+  metadata), on a subscription's (`subscription_data.metadata`), on refunds (`RefundRequest`, omnipay's
+  `/v1/charges/{charge}/refund` with the `metadata` it did not send, and `/v1/refunds`), on connected
+  accounts and on registered webhook endpoints. `notify()` gives the event object's metadata back as
+  `Notification::$tags` (an invoice's: its subscription's). Parameters checked against Stripe's
+  OpenAPI description. Not tagged: the customer Checkout creates (no parameter sets its metadata).
+  Tests on recorded requests (`StripeTagsTest`).
 - The webhook endpoint registered from the application: `RegisterWebhook` (lists
   `/v1/webhook_endpoints`, deletes the endpoints on the same address, makes one for the four
   `checkout.session.*` events in the gateway's `api_version`, answers its `whsec_` secret),

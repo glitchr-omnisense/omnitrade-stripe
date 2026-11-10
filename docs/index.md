@@ -190,6 +190,15 @@ token, form-encoded (`a[b][c]=...`, booleans `true`/`false`, `null` values left 
 The catalogue, Connect and subscriptions: [Stripe's catalogue](catalogue.md#stripes-catalogue),
 [Connect and subscriptions](connect.md#stripe-connect-and-subscriptions).
 
+## Tags
+
+The `tags` option (`tags: { site: solstay }`, every omnitrade provider's) is put as `metadata` on
+the Checkout Session and its payment intent (`payment_intent_data.metadata`), on a subscription
+(`subscription_data.metadata`), on refunds, on connected accounts and on webhook endpoints. The
+payment's own metadata wins on a key both have, except `site`. `notify()` gives the event object's
+metadata back as `Notification::$tags`. For an invoice, these are its subscription's. The customer
+that Checkout creates carries no tag: no Checkout parameter sets its metadata. See omnisense/omnitrade's [Several sites in one sandbox](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/several-sites.md).
+
 ## Example
 
 ```php
