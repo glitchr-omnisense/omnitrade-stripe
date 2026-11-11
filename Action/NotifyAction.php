@@ -12,6 +12,7 @@ use Omnitrade\Request\Notify;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Accounts;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\Products;
 use Omnitrade\Stripe\Sessions;
 
@@ -61,7 +62,8 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
         if (!\is_array($event) || !\is_string($event['type'] ?? null)) {
             throw new ProviderException('stripe', 'The notification is not a Stripe event.');
         }
-        $object = \is_array($event['data']['object'] ?? null) ? $event['data']['object'] : [];
+        $object = Data::of($event)->fields('data.object');
+        $read = Data::of($object);
         $session = 'checkout.session' === ($object['object'] ?? null) ? $object : null;
         $status = match ($event['type']) {
             'checkout.session.completed', 'checkout.session.async_payment_succeeded' => 'paid' === ($object['payment_status'] ?? null) ? Status::PAID : Status::PENDING,
@@ -70,12 +72,12 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
             default => null,
         };
 
-        $reference = isset($object['id']) ? (string) $object['id'] : null;
+        $reference = $read->textOrNull('id');
         $product = null;
         if ('product' === ($object['object'] ?? null) && null !== $reference && 'product.deleted' !== $event['type']) {
             $product = Products::fetch($this->api, $object);
         } elseif ('price' === ($object['object'] ?? null) && str_starts_with($event['type'], 'price.')) {
-            $reference = \is_array($object['product'] ?? null) ? (string) ($object['product']['id'] ?? '') : (string) ($object['product'] ?? '');
+            $reference = \is_array($object['product'] ?? null) ? $read->text('product.id') : $read->text('product');
             $product = '' === $reference ? null : Products::find($this->api, $reference);
         }
 
@@ -85,7 +87,7 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
             reference: $reference,
             status: $status,
             transaction: $session ? Sessions::transaction($session) : null,
-            id: isset($event['id']) ? (string) $event['id'] : null,
+            id: Data::of($event)->textOrNull('id'),
             raw: $event,
             product: $product,
             account: 'account' === ($object['object'] ?? null) ? Accounts::account($object) : null,
@@ -105,7 +107,8 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
      */
     public static function tags(array $object): array
     {
-        foreach ([$object['metadata'] ?? null, $object['subscription_details']['metadata'] ?? null, $object['parent']['subscription_details']['metadata'] ?? null] as $metadata) {
+        $read = Data::of($object);
+        foreach ([$read->get('metadata'), $read->get('subscription_details.metadata'), $read->get('parent.subscription_details.metadata')] as $metadata) {
             if (\is_array($metadata) && [] !== $metadata) {
                 $tags = [];
                 foreach ($metadata as $key => $value) {

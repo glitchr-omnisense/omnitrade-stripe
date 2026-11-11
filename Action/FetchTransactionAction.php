@@ -9,6 +9,7 @@ use Omnitrade\Exception\ProviderException;
 use Omnitrade\Request\FetchTransaction;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\Sessions;
 
 /**
@@ -35,9 +36,11 @@ final class FetchTransactionAction implements ActionInterface, ApiAwareInterface
     public function execute(Request $request): void
     {
         \assert($request instanceof FetchTransaction);
-        $data = $this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference, 'expand' => ['payment_intent.latest_charge']]))->getData();
+        $data = Data::map($this->api->sendOmnipay($this->api->checkout()->fetchTransaction(['transactionReference' => $request->reference, 'expand' => ['payment_intent.latest_charge']]))->getData());
         if (empty($data['id'])) {
-            throw new ProviderException('stripe', (string) ($data['error']['message'] ?? 'Stripe knows no such session.'), $data['error']['code'] ?? null);
+            $error = Data::of($data)->data('error');
+
+            throw new ProviderException('stripe', $error->textOrNull('message') ?? 'Stripe knows no such session.', $error->textOrNull('code'));
         }
         $request->setResult(Sessions::transaction($data));
     }

@@ -35,6 +35,7 @@ final class StripeContractTest extends TestCase
         return 'prod_A';
     }
 
+    /** @return array<string, array<mixed>> */
     protected function recordedAnswers(): array
     {
         $price = ['id' => 'price_75', 'object' => 'price', 'active' => true, 'currency' => 'eur', 'unit_amount' => 2400, 'product' => 'prod_A', 'type' => 'one_time', 'recurring' => null, 'metadata' => []];
@@ -51,14 +52,16 @@ final class StripeContractTest extends TestCase
         ];
     }
 
-    protected function signedNotification(): ?array
+    /** @return array{0: string, 1: array<string, string>} */
+    protected function signedNotification(): array
     {
-        $body = json_encode(['id' => 'evt_1', 'type' => 'checkout.session.completed', 'data' => ['object' => self::session('complete', 'paid')]]);
+        $body = json_encode(['id' => 'evt_1', 'type' => 'checkout.session.completed', 'data' => ['object' => self::session('complete', 'paid')]], \JSON_THROW_ON_ERROR);
         $time = time();
 
         return [$body, ['Stripe-Signature' => \sprintf('t=%d,v1=%s', $time, hash_hmac('sha256', $time.'.'.$body, self::SECRET))]];
     }
 
+    /** @return array<string, mixed> */
     private static function session(string $status, string $paymentStatus): array
     {
         return ['id' => 'cs_test_1', 'object' => 'checkout.session', 'status' => $status, 'payment_status' => $paymentStatus, 'amount_total' => 1250, 'currency' => 'eur', 'payment_method_types' => ['card'], 'created' => 1760000000, 'metadata' => []];

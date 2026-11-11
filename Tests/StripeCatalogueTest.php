@@ -7,6 +7,7 @@ use Omnitrade\Model\Product;
 use Omnitrade\Request\FetchInventory;
 use Omnitrade\Request\FetchProduct;
 use Omnitrade\Request\FetchProducts;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\StripeGatewayFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -19,16 +20,17 @@ final class StripeCatalogueTest extends TestCase
     /** @var list<array{string, array<string, mixed>}> path, query */
     private array $calls = [];
 
+    /** @param array<string, mixed> $options */
     private function gateway(array $options = []): GatewayInterface
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
             self::assertSame('GET', $method);
             self::assertStringStartsWith('https://api.stripe.com/v1/', $url);
-            self::assertContains('Authorization: Bearer sk_test_x', $options['headers']);
+            self::assertContains('Authorization: Bearer sk_test_x', Data::texts($options['headers'] ?? []));
             $path = (string) parse_url($url, \PHP_URL_PATH);
             parse_str((string) parse_url($url, \PHP_URL_QUERY), $query);
-            $this->calls[] = [$path, $query];
-            $json = static fn (array $data) => new MockResponse(json_encode($data));
+            $this->calls[] = [$path, Data::map($query)];
+            $json = static fn (array $data) => new MockResponse(json_encode($data, \JSON_THROW_ON_ERROR));
 
             return match (true) {
                 '/v1/products' === $path => $json(isset($query['starting_after'])
@@ -36,8 +38,8 @@ final class StripeCatalogueTest extends TestCase
                     : ['object' => 'list', 'data' => [self::product('prod_A', 1759500000), self::product('prod_B', 1759000000)], 'has_more' => true]),
                 '/v1/products/search' === $path => $json(['object' => 'search_result', 'data' => [self::product('prod_A', 1759500000)], 'has_more' => true, 'next_page' => 'WzE3NTk1MDAwMDBd']),
                 '/v1/products/prod_A' === $path => $json(self::product('prod_A', 1759500000)),
-                '/v1/prices' === $path => $json(['object' => 'list', 'data' => self::prices($query['product']), 'has_more' => false]),
-                default => new MockResponse(json_encode(['error' => ['type' => 'invalid_request_error', 'code' => 'resource_missing', 'message' => 'No such product: '.$path]]), ['http_code' => 404]),
+                '/v1/prices' === $path => $json(['object' => 'list', 'data' => self::prices(Data::cast($query['product'] ?? null)), 'has_more' => false]),
+                default => new MockResponse(json_encode(['error' => ['type' => 'invalid_request_error', 'code' => 'resource_missing', 'message' => 'No such product: '.$path]], \JSON_THROW_ON_ERROR), ['http_code' => 404]),
             };
         });
 
@@ -95,6 +97,7 @@ final class StripeCatalogueTest extends TestCase
     public function testAProductIsMappedWithAVariantPerPrice(): void
     {
         $product = $this->gateway()->fetchProduct('prod_A');
+        self::assertNotNull($product);
 
         self::assertSame('stripe', $product->provider);
         self::assertSame('Margaux', $product->title);
@@ -113,16 +116,16 @@ final class StripeCatalogueTest extends TestCase
         self::assertSame('price_75', $bottle->reference, 'the default price first');
         self::assertSame('75 cl', $bottle->title, 'the nickname');
         self::assertSame('MGX-75', $bottle->sku);
-        self::assertSame(2400, $bottle->price()->amount);
+        self::assertSame(2400, $bottle->price()?->amount);
         self::assertSame('EUR', $bottle->price()->currency);
-        self::assertSame('price_75', $bottle->offer()->reference);
+        self::assertSame('price_75', $bottle->offer()?->reference);
         self::assertTrue($bottle->offer()->taxIncluded);
         self::assertNull($bottle->stock, 'no stock at Stripe');
         self::assertSame(1361, $bottle->weight, '48 ounces in grams');
         self::assertSame('Magnum', $magnum->title, 'a title in its metadata');
-        self::assertSame(5200, $magnum->price()->amount);
-        self::assertNull($magnum->offer()->taxIncluded);
-        self::assertSame(2400, $product->price()->amount);
+        self::assertSame(5200, $magnum->price()?->amount);
+        self::assertNull($magnum->offer()?->taxIncluded);
+        self::assertSame(2400, $product->price()?->amount);
     }
 
     public function testAProductWithoutPricesAndARecurringOne(): void
@@ -154,6 +157,7 @@ final class StripeCatalogueTest extends TestCase
         $updated = $gateway->notify(...$this->signed(['id' => 'evt_1', 'type' => 'product.updated', 'data' => ['object' => self::product('prod_A', 1759500000, false)]]));
         self::assertTrue($updated->isCatalogue());
         self::assertSame('prod_A', $updated->reference);
+        self::assertNotNull($updated->product);
         self::assertSame('Château Exemple', $updated->product->brand);
         self::assertCount(2, $updated->product->variants, 'its prices read along');
         self::assertSame('price_75', $updated->product->variants[0]->reference, 'the default price first, even unexpanded');
@@ -161,7 +165,7 @@ final class StripeCatalogueTest extends TestCase
         $price = $gateway->notify(...$this->signed(['id' => 'evt_2', 'type' => 'price.updated', 'data' => ['object' => self::prices('prod_A')[1]]]));
         self::assertTrue($price->isCatalogue());
         self::assertSame('prod_A', $price->reference, 'the price\'s product');
-        self::assertSame('Margaux', $price->product->title);
+        self::assertSame('Margaux', $price->product?->title);
 
         $deleted = $gateway->notify(...$this->signed(['id' => 'evt_3', 'type' => 'product.deleted', 'data' => ['object' => self::product('prod_A', 1759500000, false)]]));
         self::assertTrue($deleted->isCatalogue());
@@ -169,15 +173,20 @@ final class StripeCatalogueTest extends TestCase
         self::assertSame('prod_A', $deleted->reference);
     }
 
-    /** @return array{string, array<string, string>} */
+    /**
+     * @param array<string, mixed> $event
+     *
+     * @return array{string, array<string, string>}
+     */
     private function signed(array $event): array
     {
-        $body = json_encode($event);
+        $body = json_encode($event, \JSON_THROW_ON_ERROR);
         $time = time();
 
         return [$body, ['Stripe-Signature' => sprintf('t=%d,v1=%s', $time, hash_hmac('sha256', $time.'.'.$body, self::SECRET))]];
     }
 
+    /** @return array<string, mixed> */
     private static function product(string $id, int $updated, bool $expanded = true): array
     {
         return match ($id) {
@@ -190,6 +199,7 @@ final class StripeCatalogueTest extends TestCase
         };
     }
 
+    /** @return list<array<string, mixed>> */
     private static function prices(string $product): array
     {
         return match ($product) {

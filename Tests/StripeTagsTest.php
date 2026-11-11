@@ -8,6 +8,7 @@ use Omnitrade\Model\Line;
 use Omnitrade\Model\Money;
 use Omnitrade\Model\Payment;
 use Omnitrade\Request\RegisterWebhook;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\StripeGatewayFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -36,8 +37,8 @@ final class StripeTagsTest extends TestCase
         $sent = $this->sent('POST', '/v1/checkout/sessions');
         $expected = ['site' => 'solstay', 'env' => 'mine', 'order' => 'B-42'];
         self::assertEquals($expected, $sent['metadata'], 'the caller\'s metadata wins, but not on "site"');
-        self::assertEquals($expected, $sent['payment_intent_data']['metadata']);
-        self::assertSame('Autoliquidation', $sent['payment_intent_data']['description'], 'beside the notice');
+        self::assertEquals($expected, Data::of($sent)->get('payment_intent_data.metadata'));
+        self::assertSame('Autoliquidation', Data::of($sent)->get('payment_intent_data.description'), 'beside the notice');
     }
 
     public function testWithoutTagsTheSessionIsAsBefore(): void
@@ -56,7 +57,7 @@ final class StripeTagsTest extends TestCase
         $sent = $this->sent('POST', '/v1/checkout/sessions');
         self::assertSame('subscription', $sent['mode']);
         self::assertEquals(['site' => 'solstay', 'env' => 'demo', 'plan' => 'D'], $sent['metadata']);
-        self::assertEquals(['site' => 'solstay', 'env' => 'demo', 'plan' => 'D'], $sent['subscription_data']['metadata']);
+        self::assertEquals(['site' => 'solstay', 'env' => 'demo', 'plan' => 'D'], Data::of($sent)->get('subscription_data.metadata'));
     }
 
     public function testAPartialRefundCarriesTheSite(): void
@@ -109,13 +110,13 @@ final class StripeTagsTest extends TestCase
             $body = $options['body'] ?? '';
             if (\is_callable($body)) {
                 $chunks = '';
-                while ('' !== $chunk = $body(8192)) {
+                while ('' !== $chunk = Data::cast($body(8192))) {
                     $chunks .= $chunk;
                 }
                 $body = $chunks;
             }
             parse_str(\is_string($body) ? $body : '', $sent);
-            $this->calls[] = [$method, $path, $sent];
+            $this->calls[] = [$method, $path, Data::map($sent)];
 
             return new MockResponse((string) json_encode(match (true) {
                 '/v1/checkout/sessions' === $path => ['id' => 'cs_test_1', 'object' => 'checkout.session', 'url' => 'https://checkout.stripe.com/c/pay/cs_test_1', 'status' => 'open', 'payment_status' => 'unpaid', 'amount_total' => 1250, 'currency' => 'eur'],

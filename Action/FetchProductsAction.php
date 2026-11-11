@@ -9,6 +9,7 @@ use Omnitrade\Model\ProductPage;
 use Omnitrade\Request\FetchProducts;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\Products;
 
 /**
@@ -43,18 +44,18 @@ final class FetchProductsAction implements ActionInterface, ApiAwareInterface
         if (null !== $request->query && '' !== trim($request->query)) {
             $search = self::search(trim($request->query)).($this->activeOnly ? ' AND active:"true"' : '');
             $page = $this->api->get('/v1/products/search', array_filter(['query' => $search, 'limit' => $limit, 'page' => $request->cursor, 'expand' => $expand]));
-            $next = !empty($page['has_more']) && !empty($page['next_page']) ? (string) $page['next_page'] : null;
+            $next = !empty($page['has_more']) && !empty($page['next_page']) ? Data::cast($page['next_page']) : null;
         } else {
             $page = $this->api->get('/v1/products', array_filter(['limit' => $limit, 'starting_after' => $request->cursor, 'active' => $this->activeOnly ? 'true' : null, 'expand' => $expand]));
-            $data = $page['data'] ?? [];
+            $data = (array) ($page['data'] ?? []);
             $last = end($data);
-            $next = !empty($page['has_more']) && \is_array($last) ? (string) $last['id'] : null;
+            $next = !empty($page['has_more']) && \is_array($last) ? Data::cast($last['id'] ?? null) : null;
         }
 
         $since = $request->updatedSince?->getTimestamp();
         $products = [];
-        foreach ($page['data'] ?? [] as $product) {
-            if (null !== $since && (int) ($product['updated'] ?? 0) < $since) {
+        foreach (Data::maps($page['data'] ?? []) as $product) {
+            if (null !== $since && Data::integer($product['updated'] ?? 0) < $since) {
                 continue;
             }
             $products[] = Products::fetch($this->api, $product);

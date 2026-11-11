@@ -10,6 +10,7 @@ use Omnitrade\Action\TagsAwareTrait;
 use Omnitrade\Request\RegisterWebhook;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\WebhookEndpoints;
 
 /**
@@ -39,13 +40,13 @@ final class RegisterWebhookAction implements ActionInterface, ApiAwareInterface,
         \assert($request instanceof RegisterWebhook);
         foreach (WebhookEndpoints::all($this->api) as $endpoint) {
             if (($endpoint['url'] ?? null) === $request->url && isset($endpoint['id'])) {
-                WebhookEndpoints::delete($this->api, (string) $endpoint['id']);
+                WebhookEndpoints::delete($this->api, Data::cast($endpoint['id']));
             }
         }
 
         $request->setResult(WebhookEndpoints::webhook($this->api->post('/v1/webhook_endpoints', array_filter([
             'url' => $request->url,
-            'enabled_events' => [] === $request->events ? WebhookEndpoints::EVENTS : array_values($request->events),
+            'enabled_events' => [] === $request->events ? WebhookEndpoints::EVENTS : $request->events,
             'api_version' => $this->api->apiVersion(),
             'description' => 'omnitrade',
             // The site the endpoint is for, when several share the account (the "tags" option).

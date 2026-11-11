@@ -8,6 +8,7 @@ use Omnitrade\Request\DeleteWebhook;
 use Omnitrade\Request\FetchWebhooks;
 use Omnitrade\Request\RegisterWebhook;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\StripeGatewayFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -34,14 +35,16 @@ final class StripeWebhookEndpointsTest extends TestCase
         ];
     }
 
+    /** @param array<string, mixed> $options */
     private function gateway(array $options = []): \Omnitrade\GatewayInterface
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
-            parse_str((string) ($options['body'] ?? ''), $sent);
+            parse_str(Data::cast($options['body'] ?? ''), $form);
             parse_str((string) parse_url($url, \PHP_URL_QUERY), $query);
+            $sent = Data::of($form);
             $path = (string) parse_url($url, \PHP_URL_PATH);
-            $this->calls[] = [$method, $path, 'GET' === $method ? $query : $sent, $options];
-            $json = static fn (array $data, int $status = 200) => new MockResponse(json_encode($data), ['http_code' => $status]);
+            $this->calls[] = [$method, $path, Data::map('GET' === $method ? $query : $form), Data::map($options)];
+            $json = static fn (array $data, int $status = 200) => new MockResponse(json_encode($data, \JSON_THROW_ON_ERROR), ['http_code' => $status]);
             $id = substr($path, \strlen('/v1/webhook_endpoints/'));
 
             if ('GET' === $method && '/v1/webhook_endpoints' === $path) {
@@ -52,8 +55,8 @@ final class StripeWebhookEndpointsTest extends TestCase
                 return $json(['object' => 'list', 'url' => '/v1/webhook_endpoints', 'has_more' => $from + 1 < \count($all), 'data' => \array_slice($all, $from, 1)]);
             }
             if ('POST' === $method && '/v1/webhook_endpoints' === $path) {
-                $made = self::endpoint('we_new'.++$this->made, $sent['url'], $sent['enabled_events'], $sent['api_version'] ?? null);
-                $this->endpoints[$made['id']] = $made;
+                $made = self::endpoint('we_new'.++$this->made, $sent->text('url'), Data::texts($sent->get('enabled_events')), $sent->textOrNull('api_version'));
+                $this->endpoints['we_new'.$this->made] = $made;
 
                 return $json($made + ['secret' => 'whsec_made_by_the_mock_'.$this->made]);
             }
@@ -91,11 +94,11 @@ final class StripeWebhookEndpointsTest extends TestCase
 
         [, , $sent, $options] = $this->calls[3];
         self::assertSame(Api::API_VERSION, $sent['api_version'], 'events come in the version notify() reads');
-        self::assertContains('Stripe-Version: '.Api::API_VERSION, $options['headers']);
+        self::assertContains('Stripe-Version: '.Api::API_VERSION, Data::texts($options['headers'] ?? []));
 
         // again: the endpoint just made is replaced, never doubled
         $gateway->execute($again = new RegisterWebhook(self::URL));
-        self::assertSame('we_new2', $again->getWebhook()->id);
+        self::assertSame('we_new2', $again->getWebhook()?->id);
         self::assertSame(['we_other', 'we_new2'], array_keys($this->endpoints));
     }
 
@@ -104,8 +107,10 @@ final class StripeWebhookEndpointsTest extends TestCase
         $gateway = $this->gateway(['api_version' => null]);
         $gateway->execute($request = new RegisterWebhook('https://shop.example.org/other', ['charge.refunded']));
 
-        self::assertSame(['charge.refunded'], $request->getWebhook()->events);
-        [, , $sent] = end($this->calls);
+        self::assertSame(['charge.refunded'], $request->getWebhook()?->events);
+        $last = end($this->calls);
+        self::assertNotFalse($last);
+        [, , $sent] = $last;
         self::assertArrayNotHasKey('api_version', $sent);
         self::assertCount(3, $this->endpoints, 'another address: nothing deleted');
     }
@@ -127,14 +132,18 @@ final class StripeWebhookEndpointsTest extends TestCase
 
     public function testAnotherRefusalIsThrown(): void
     {
-        $http = new MockHttpClient(new MockResponse(json_encode(['error' => ['message' => 'Invalid API Key provided: sk_test_***x', 'type' => 'invalid_request_error']]), ['http_code' => 401]));
+        $http = new MockHttpClient(new MockResponse(json_encode(['error' => ['message' => 'Invalid API Key provided: sk_test_***x', 'type' => 'invalid_request_error']], \JSON_THROW_ON_ERROR), ['http_code' => 401]));
         $gateway = (new StripeGatewayFactory($http))->create(['api_key' => 'sk_test_x']);
 
         $this->expectException(ProviderException::class);
         $gateway->execute(new RegisterWebhook(self::URL));
     }
 
-    /** @param list<string> $events */
+    /**
+     * @param list<string> $events
+     *
+     * @return array<string, mixed>
+     */
     private static function endpoint(string $id, string $url, array $events, ?string $version = '2020-08-27'): array
     {
         return ['id' => $id, 'object' => 'webhook_endpoint', 'api_version' => $version, 'application' => null, 'created' => 1761868800, 'description' => 'omnitrade', 'enabled_events' => $events, 'livemode' => false, 'metadata' => [], 'status' => 'enabled', 'url' => $url];

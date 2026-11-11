@@ -26,7 +26,7 @@ final class WebhookEndpoints
         $after = null;
         do {
             $page = $api->get('/v1/webhook_endpoints', array_filter(['limit' => 100, 'starting_after' => $after]));
-            $data = array_values(array_filter((array) ($page['data'] ?? []), 'is_array'));
+            $data = Data::maps((array) ($page['data'] ?? []));
             $endpoints = [...$endpoints, ...$data];
             $after = [] === $data ? null : ($data[\count($data) - 1]['id'] ?? null);
         } while (true === ($page['has_more'] ?? false) && null !== $after);
@@ -55,10 +55,10 @@ final class WebhookEndpoints
         unset($raw['secret']);
 
         return new Webhook(
-            (string) ($endpoint['id'] ?? ''),
-            (string) ($endpoint['url'] ?? ''),
-            array_values(array_map('strval', (array) ($endpoint['enabled_events'] ?? []))),
-            isset($endpoint['secret']) && '' !== $endpoint['secret'] ? (string) $endpoint['secret'] : null,
+            Data::cast($endpoint['id'] ?? ''),
+            Data::cast($endpoint['url'] ?? ''),
+            Data::texts($endpoint['enabled_events'] ?? []),
+            isset($endpoint['secret']) && '' !== $endpoint['secret'] ? Data::cast($endpoint['secret']) : null,
             $raw,
         );
     }

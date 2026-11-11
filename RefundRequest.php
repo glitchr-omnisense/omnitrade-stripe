@@ -15,7 +15,7 @@ class RefundRequest extends OmnipayRefundRequest
     /** @return array<string, mixed> */
     public function getData(): array
     {
-        $data = parent::getData();
+        $data = Data::map(parent::getData());
         $metadata = $this->getMetadata();
         if (\is_array($metadata) && [] !== $metadata) {
             $data['metadata'] = $metadata;

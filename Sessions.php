@@ -17,24 +17,25 @@ final class Sessions
             'expired' === ($session['status'] ?? null) => Status::EXPIRED,
             default => Status::PENDING,
         };
+        $read = Data::of($session);
         $intent = $session['payment_intent'] ?? null;
-        $refunded = \is_array($intent) ? ($intent['amount_refunded'] ?? ($intent['latest_charge']['amount_refunded'] ?? null)) : null;
+        $refunded = \is_array($intent) ? ($read->get('payment_intent.amount_refunded') ?? $read->get('payment_intent.latest_charge.amount_refunded')) : null;
         if (Status::PAID === $status && \is_int($refunded) && $refunded > 0) {
-            $status = $refunded >= (int) ($session['amount_total'] ?? 0) ? Status::REFUNDED : Status::PARTIALLY_REFUNDED;
+            $status = $refunded >= $read->number('amount_total') ? Status::REFUNDED : Status::PARTIALLY_REFUNDED;
         }
-        $currency = strtoupper((string) ($session['currency'] ?? 'EUR'));
+        $currency = strtoupper(Data::cast($session['currency'] ?? 'EUR'));
 
         return new Transaction(
             provider: 'stripe',
-            reference: (string) $session['id'],
+            reference: $read->text('id'),
             status: $status,
-            amount: isset($session['amount_total']) ? Money::of((int) $session['amount_total'], $currency) : null,
-            redirectUrl: Status::PENDING === $status ? ($session['url'] ?? null) : null,
-            message: $session['status'] ?? null,
-            method: \is_array($session['payment_method_types'] ?? null) ? (string) ($session['payment_method_types'][0] ?? null) : null,
+            amount: $read->has('amount_total') ? Money::of($read->number('amount_total'), $currency) : null,
+            redirectUrl: Status::PENDING === $status ? $read->textOrNull('url') : null,
+            message: $read->textOrNull('status'),
+            method: \is_array($read->get('payment_method_types')) ? $read->text('payment_method_types.0') : null,
             refunded: \is_int($refunded) && $refunded > 0 ? Money::of($refunded, $currency) : null,
-            metadata: \is_array($session['metadata'] ?? null) ? $session['metadata'] : [],
-            createdAt: isset($session['created']) ? (new \DateTimeImmutable())->setTimestamp((int) $session['created']) : null,
+            metadata: $read->fields('metadata'),
+            createdAt: $read->has('created') ? (new \DateTimeImmutable())->setTimestamp($read->number('created')) : null,
             raw: $session,
         );
     }

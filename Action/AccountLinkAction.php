@@ -9,6 +9,7 @@ use Omnitrade\Request\AccountLink;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Accounts;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 
 /** The onboarding page of a connected account (POST /v1/account_links): single use, valid a few minutes. */
 final class AccountLinkAction implements ActionInterface, ApiAwareInterface
@@ -35,6 +36,6 @@ final class AccountLinkAction implements ActionInterface, ApiAwareInterface
             'refresh_url' => $request->refreshUrl,
             'type' => AccountLink::UPDATE === $request->type ? 'account_update' : 'account_onboarding',
         ]);
-        $request->setResult((string) $link['url']);
+        $request->setResult(Data::cast($link['url'] ?? null));
     }
 }

@@ -24,26 +24,28 @@ use Omnipay\Stripe\Message\Checkout\PurchaseRequest;
  */
 class CheckoutPurchaseRequest extends PurchaseRequest
 {
-    public function getCustomerEmail(): ?string { return $this->getParameter('customerEmail'); }
+    public function getCustomerEmail(): ?string { return self::text($this->getParameter('customerEmail')); }
     public function setCustomerEmail(?string $value): self { return $this->setParameter('customerEmail', $value); }
     public function getAdaptivePricing(): bool { return (bool) $this->getParameter('adaptivePricing'); }
     public function setAdaptivePricing(bool $value): self { return $this->setParameter('adaptivePricing', $value); }
-    public function getLocale(): ?string { return $this->getParameter('locale'); }
+    public function getLocale(): ?string { return self::text($this->getParameter('locale')); }
     public function setLocale(?string $value): self { return $this->setParameter('locale', $value); }
-    public function getDestination(): ?string { return $this->getParameter('destination'); }
+    public function getDestination(): ?string { return self::text($this->getParameter('destination')); }
     public function setDestination(?string $value): self { return $this->setParameter('destination', $value); }
-    public function getApplicationFee(): ?int { return $this->getParameter('applicationFee'); }
+    public function getApplicationFee(): ?int { $value = $this->getParameter('applicationFee'); return null === $value ? null : Data::integer($value); }
     public function setApplicationFee(?int $value): self { return $this->setParameter('applicationFee', $value); }
     /** @return list<array<string, mixed>>|null */
-    public function getShippingOptions(): ?array { return $this->getParameter('shippingOptions'); }
+    public function getShippingOptions(): ?array { $value = $this->getParameter('shippingOptions'); return \is_array($value) ? Data::maps($value) : null; }
     /** @param list<array<string, mixed>>|null $value */
     public function setShippingOptions(?array $value): self { return $this->setParameter('shippingOptions', $value); }
-    public function getNotice(): ?string { return $this->getParameter('notice'); }
+    public function getNotice(): ?string { return self::text($this->getParameter('notice')); }
     public function setNotice(?string $value): self { return $this->setParameter('notice', $value); }
 
+    /** @return array<mixed> */
     public function getData(): array
     {
-        $data = array_filter(parent::getData(), static fn ($value) => null !== $value);
+        $data = array_filter((array) parent::getData(), static fn ($value) => null !== $value);
+        $intent = [];
         if ($this->getCustomerEmail()) {
             $data['customer_email'] = $this->getCustomerEmail();
         }
@@ -61,21 +63,30 @@ class CheckoutPurchaseRequest extends PurchaseRequest
         if ($this->getMetadata()) {
             $data['metadata'] = $this->getMetadata();
             // The payment intent (and what is read of it later: its charge's refunds, its events) carries them too.
-            $data['payment_intent_data'] = ['metadata' => $this->getMetadata()];
+            $intent = ['metadata' => $this->getMetadata()];
+            $data['payment_intent_data'] = $intent;
         }
         if ($this->getNotice()) {
             $data['custom_text'] = ['submit' => ['message' => $this->getNotice()]];
-            $data['payment_intent_data'] = ($data['payment_intent_data'] ?? []) + ['description' => $this->getNotice()];
+            $intent += ['description' => $this->getNotice()];
+            $data['payment_intent_data'] = $intent;
         }
         // Connect, a destination charge: the platform takes the payment, Stripe
         // passes it on to the connected account, less the platform's fee.
         if ($this->getDestination()) {
-            $data['payment_intent_data'] = ($data['payment_intent_data'] ?? []) + ['transfer_data' => ['destination' => $this->getDestination()]];
+            $intent += ['transfer_data' => ['destination' => $this->getDestination()]];
             if (null !== $this->getApplicationFee() && $this->getApplicationFee() > 0) {
-                $data['payment_intent_data']['application_fee_amount'] = $this->getApplicationFee();
+                $intent['application_fee_amount'] = $this->getApplicationFee();
             }
+            $data['payment_intent_data'] = $intent;
         }
 
         return $data;
+    }
+
+    /** A string parameter as its setter took it (a scalar as a string, as the return type made it). */
+    private static function text(mixed $value): ?string
+    {
+        return null === $value ? null : Data::cast($value);
     }
 }

@@ -14,6 +14,7 @@ use Omnitrade\Request\CreateAccount;
 use Omnitrade\Request\FetchAccount;
 use Omnitrade\Request\Subscribe;
 use Omnitrade\Request\SubscriptionPortal;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\StripeGatewayFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -24,7 +25,7 @@ final class StripeConnectTest extends TestCase
 {
     private const SECRET = 'whsec_test';
 
-    /** @var list<array{string, string, array<string, mixed>, array}> method, path, the form sent, the options */
+    /** @var list<array{string, string, array<string, mixed>, array<mixed>}> method, path, the form sent, the options */
     private array $calls = [];
 
     private function gateway(): \Omnitrade\GatewayInterface
@@ -33,15 +34,16 @@ final class StripeConnectTest extends TestCase
             $body = $options['body'] ?? '';
             if (\is_callable($body)) {
                 $chunks = '';
-                while ('' !== $chunk = $body(8192)) {
+                while ('' !== $chunk = Data::cast($body(8192))) {
                     $chunks .= $chunk;
                 }
                 $body = $chunks;
             }
-            parse_str((string) $body, $sent);
+            parse_str(Data::cast($body), $query);
+            $sent = Data::map($query);
             $path = (string) parse_url($url, \PHP_URL_PATH);
             $this->calls[] = [$method, $path, $sent, $options];
-            $json = static fn (array $data, int $status = 200) => new MockResponse(json_encode($data), ['http_code' => $status]);
+            $json = static fn (array $data, int $status = 200) => new MockResponse(json_encode($data, \JSON_THROW_ON_ERROR), ['http_code' => $status]);
 
             return match (true) {
                 'POST' === $method && '/v1/accounts' === $path => $json(self::account(false)),
@@ -76,9 +78,9 @@ final class StripeConnectTest extends TestCase
         self::assertSame('express', $sent['type']);
         self::assertSame('FR', $sent['country']);
         self::assertSame('lea@example.org', $sent['email']);
-        self::assertSame('true', $sent['capabilities']['transfers']['requested']);
-        self::assertSame('42', $sent['metadata']['holder']);
-        self::assertContains('Authorization: Bearer sk_test_x', $options['headers']);
+        self::assertSame('true', Data::of($sent)->get('capabilities.transfers.requested'));
+        self::assertSame('42', Data::of($sent)->get('metadata.holder'));
+        self::assertContains('Authorization: Bearer sk_test_x', Data::texts($options['headers'] ?? []));
 
         $url = $gateway->accountLink('acct_1', 'https://site.example/retour', 'https://site.example/reprendre');
         self::assertSame('https://connect.stripe.com/setup/e/acct_1/abc', $url);
@@ -108,8 +110,8 @@ final class StripeConnectTest extends TestCase
         [, $path, $sent] = $this->calls[0];
         self::assertSame('/v1/checkout/sessions', $path);
         self::assertSame('payment', $sent['mode']);
-        self::assertSame('acct_1', $sent['payment_intent_data']['transfer_data']['destination'], 'a destination charge');
-        self::assertSame('150', $sent['payment_intent_data']['application_fee_amount']);
+        self::assertSame('acct_1', Data::of($sent)->get('payment_intent_data.transfer_data.destination'), 'a destination charge');
+        self::assertSame('150', Data::of($sent)->get('payment_intent_data.application_fee_amount'));
     }
 
     public function testAFeeNeedsADestinationAndFitsTheAmount(): void
@@ -136,20 +138,20 @@ final class StripeConnectTest extends TestCase
 
         [, , $sent, $options] = $this->calls[0];
         self::assertSame('subscription', $sent['mode']);
-        self::assertSame('1900', $sent['line_items'][0]['price_data']['unit_amount']);
-        self::assertSame('month', $sent['line_items'][0]['price_data']['recurring']['interval']);
-        self::assertSame('Formule D', $sent['line_items'][0]['price_data']['product_data']['name']);
-        self::assertSame('PLAN-D-42', $sent['subscription_data']['metadata']['order'], 'the metadata follows the subscription');
+        self::assertSame('1900', Data::of($sent)->get('line_items.0.price_data.unit_amount'));
+        self::assertSame('month', Data::of($sent)->get('line_items.0.price_data.recurring.interval'));
+        self::assertSame('Formule D', Data::of($sent)->get('line_items.0.price_data.product_data.name'));
+        self::assertSame('PLAN-D-42', Data::of($sent)->get('subscription_data.metadata.order'), 'the metadata follows the subscription');
         self::assertSame('lea@example.org', $sent['customer_email']);
         self::assertSame('fr', $sent['locale']);
-        self::assertStringContainsString('session={CHECKOUT_SESSION_ID}', $sent['success_url']);
-        self::assertContains('Idempotency-Key: sub-attempt-1', $options['headers']);
+        self::assertStringContainsString('session={CHECKOUT_SESSION_ID}', Data::cast($sent['success_url'] ?? null));
+        self::assertContains('Idempotency-Key: sub-attempt-1', Data::texts($options['headers'] ?? []));
 
         $gateway->execute(new Subscribe($payment, 'year', 1, 'price_yearly', 14, 'cus_1'));
         $sent = $this->calls[1][2];
-        self::assertSame('price_yearly', $sent['line_items'][0]['price'], 'a price kept at Stripe');
-        self::assertArrayNotHasKey('price_data', $sent['line_items'][0]);
-        self::assertSame('14', $sent['subscription_data']['trial_period_days']);
+        self::assertSame('price_yearly', Data::of($sent)->get('line_items.0.price'), 'a price kept at Stripe');
+        self::assertArrayNotHasKey('price_data', Data::of($sent)->data('line_items.0')->toArray());
+        self::assertSame('14', Data::of($sent)->get('subscription_data.trial_period_days'));
         self::assertSame('cus_1', $sent['customer']);
         self::assertArrayNotHasKey('customer_email', $sent);
     }
@@ -160,9 +162,10 @@ final class StripeConnectTest extends TestCase
         $subscription = $gateway->fetchSubscription('sub_1');
         self::assertTrue($subscription->isActive());
         self::assertSame('cus_1', $subscription->customer);
+        self::assertNotNull($subscription->amount);
         self::assertTrue($subscription->amount->equals(Money::of(1900, 'EUR')));
         self::assertSame('month', $subscription->interval);
-        self::assertSame(1762592000, $subscription->currentPeriodEnd->getTimestamp());
+        self::assertSame(1762592000, $subscription->currentPeriodEnd?->getTimestamp());
         self::assertSame('PLAN-D-42', $subscription->metadata['order']);
 
         self::assertTrue($gateway->supports(CancelSubscription::class));
@@ -194,31 +197,37 @@ final class StripeConnectTest extends TestCase
         $notification = $gateway->notify(...$this->signed(['id' => 'evt_1', 'type' => 'account.updated', 'account' => 'acct_1', 'data' => ['object' => self::account(true)]]));
         self::assertTrue($notification->isAccount());
         self::assertSame('acct_1', $notification->reference);
-        self::assertTrue($notification->account->isReady());
+        self::assertTrue($notification->account?->isReady());
         self::assertNull($notification->status);
         self::assertFalse($notification->isCatalogue());
 
         $notification = $gateway->notify(...$this->signed(['id' => 'evt_2', 'type' => 'customer.subscription.deleted', 'data' => ['object' => self::subscription('canceled')]]));
         self::assertTrue($notification->isSubscription());
         self::assertSame('sub_1', $notification->reference);
-        self::assertTrue($notification->subscription->isCancelled());
+        self::assertTrue($notification->subscription?->isCancelled());
 
         $session = ['id' => 'cs_test_9', 'object' => 'checkout.session', 'mode' => 'subscription', 'status' => 'complete', 'payment_status' => 'paid', 'amount_total' => 1900, 'currency' => 'eur', 'subscription' => 'sub_1', 'customer' => 'cus_1', 'metadata' => ['order' => 'PLAN-D-42']];
         $notification = $gateway->notify(...$this->signed(['id' => 'evt_3', 'type' => 'checkout.session.completed', 'data' => ['object' => $session]]));
+        self::assertNotNull($notification->transaction);
         self::assertTrue($notification->transaction->isPaid());
         self::assertSame('sub_1', $notification->transaction->raw['subscription']);
         self::assertSame('cus_1', $notification->transaction->raw['customer']);
     }
 
-    /** @return array{string, array<string, string>} */
+    /**
+     * @param array<string, mixed> $event
+     *
+     * @return array{string, array<string, string>}
+     */
     private function signed(array $event): array
     {
-        $body = json_encode($event);
+        $body = json_encode($event, \JSON_THROW_ON_ERROR);
         $time = time();
 
         return [$body, ['Stripe-Signature' => sprintf('t=%d,v1=%s', $time, hash_hmac('sha256', $time.'.'.$body, self::SECRET))]];
     }
 
+    /** @return array<string, mixed> */
     private static function account(bool $ready): array
     {
         return [
@@ -229,6 +238,7 @@ final class StripeConnectTest extends TestCase
         ];
     }
 
+    /** @return array<string, mixed> */
     private static function subscription(string $status): array
     {
         return [

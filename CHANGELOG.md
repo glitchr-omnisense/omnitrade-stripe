@@ -22,6 +22,11 @@
   `FetchWebhooks`, `DeleteWebhook` (true when already gone); `WebhookEndpoints::EVENTS`,
   `Api::apiVersion()`. Tests on answers shaped as Stripe's (`StripeWebhookEndpointsTest`).
 
+### Changed
+- PHPStan at level max with an empty baseline (339 errors that predated it): Stripe's answers read
+  through `Data` (internal: omnisense/contracts' `Http\Data` with reads that keep PHP's `(string)` and
+  `(int)` of a scalar), the arrays typed. Types only: no signature changed, no behaviour either.
+
 ### Fixed
 - Every call names its API version (`Stripe-Version`, the new `api_version` option, `2020-08-27` by
   default, `Api::API_VERSION`): the Checkout, the refunds and fetches through omnipay/stripe, and the

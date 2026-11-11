@@ -59,8 +59,8 @@ final class StripeGatewayFactory extends GatewayFactory
             'payment_methods' => [],
             'active_only' => false,
             'api_version' => Api::API_VERSION,
-            'omnitrade.api' => fn (Config $c) => new Api((string) $c['api_key'], $c['webhook_secret'] ?: null, $this->http, $c['api_version'] ?: null, $c->backoff()),
-            'omnitrade.action.purchase' => static fn (Config $c) => new PurchaseAction((bool) $c['adaptive_pricing'], (array) $c['payment_methods']),
+            'omnitrade.api' => fn (Config $c) => new Api(Data::cast($c['api_key']), Data::cast($c['webhook_secret']) ?: null, $this->http, Data::cast($c['api_version']) ?: null, $c->backoff()),
+            'omnitrade.action.purchase' => static fn (Config $c) => new PurchaseAction((bool) $c['adaptive_pricing'], array_map(Data::cast(...), (array) $c['payment_methods'])),
             'omnitrade.action.fetch' => new FetchTransactionAction(),
             'omnitrade.action.refund' => new RefundAction(),
             'omnitrade.action.notify' => new NotifyAction(),
@@ -76,7 +76,7 @@ final class StripeGatewayFactory extends GatewayFactory
             'omnitrade.action.webhook_register' => new RegisterWebhookAction(),
             'omnitrade.action.webhooks' => new FetchWebhooksAction(),
             'omnitrade.action.webhook_delete' => new DeleteWebhookAction(),
-            'omnitrade.action.methods' => static fn (Config $c) => new GetPaymentMethodsAction((array) $c['payment_methods']),
+            'omnitrade.action.methods' => static fn (Config $c) => new GetPaymentMethodsAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
         ]);
     }
 }

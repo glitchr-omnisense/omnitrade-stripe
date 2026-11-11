@@ -71,6 +71,8 @@ final class Api
      * A GET of Stripe's REST API: "/v1/products", with its query (arrays as
      * Stripe reads them, expand[0]=...).
      *
+     * @param array<string, mixed> $query
+     *
      * @return array<string, mixed>
      *
      * @throws ProviderException with Stripe's error code ("resource_missing")
@@ -98,10 +100,10 @@ final class Api
             throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
         if ($status >= 400 || isset($data['error'])) {
-            throw Redaction::withoutArguments(new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null));
+            throw self::failure($data, $status);
         }
 
-        return $data;
+        return Data::map($data);
     }
 
     /**
@@ -121,13 +123,21 @@ final class Api
         return $this->send('POST', $path, $parameters, $idempotencyKey);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $parameters
+     *
+     * @return array<string, mixed>
+     */
     public function delete(string $path, array $parameters = []): array
     {
         return $this->send('DELETE', $path, $parameters);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $parameters
+     *
+     * @return array<string, mixed>
+     */
     private function send(string $method, string $path, array $parameters, ?string $idempotencyKey = null): array
     {
         Throttle::before($this->backoff);
@@ -156,10 +166,10 @@ final class Api
             throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
         }
         if ($status >= 400 || isset($data['error'])) {
-            throw Redaction::withoutArguments(new ProviderException('stripe', (string) ($data['error']['message'] ?? sprintf('HTTP %d', $status)), isset($data['error']['code']) ? (string) $data['error']['code'] : null));
+            throw self::failure($data, $status);
         }
 
-        return $data;
+        return Data::map($data);
     }
 
     /** What a 429's body says: "Stripe answered 429: <its message>", or nothing. */
@@ -171,7 +181,24 @@ final class Api
         return \is_string($message) ? 'Stripe answered 429: '.$message : '';
     }
 
-        private static function withoutNulls(array $parameters): array
+    /**
+     * Stripe's error as a ProviderException: its message (or the status), its code.
+     *
+     * @param array<mixed> $data
+     */
+    private static function failure(array $data, int $status): ProviderException
+    {
+        $error = Data::of($data)->data('error');
+
+        return Redaction::withoutArguments(new ProviderException('stripe', $error->textOrNull('message') ?? sprintf('HTTP %d', $status), $error->textOrNull('code')));
+    }
+
+    /**
+     * @param array<mixed> $parameters
+     *
+     * @return array<mixed>
+     */
+    private static function withoutNulls(array $parameters): array
     {
         foreach ($parameters as $key => $value) {
             if (null === $value) {
@@ -257,6 +284,9 @@ final class Api
     private function create(string $gateway): \Omnipay\Common\GatewayInterface
     {
         $gateway = Omnipay::create($gateway, $this->http ? new OmnipayClient(new Psr18Client($this->http)) : null);
+        if (!$gateway instanceof \Omnipay\Stripe\AbstractGateway) {
+            throw new \LogicException(sprintf('%s is not a Stripe gateway of omnipay/stripe.', $gateway::class));
+        }
         $gateway->setApiKey($this->apiKey);
         if (null !== $this->apiVersion && '' !== $this->apiVersion) {
             $gateway->setStripeVersion($this->apiVersion);
@@ -272,6 +302,6 @@ final class Api
      */
     private function secrets(string ...$more): array
     {
-        return [$this->apiKey, (string) $this->webhookSecret, ...$more];
+        return [$this->apiKey, (string) $this->webhookSecret, ...array_values($more)];
     }
 }

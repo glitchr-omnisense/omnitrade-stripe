@@ -5,10 +5,11 @@ namespace Omnitrade\Stripe\Action;
 use Omnitrade\Action\ActionInterface;
 use Omnitrade\Action\ApiAwareInterface;
 use Omnitrade\Action\ApiAwareTrait;
-use Omnitrade\Request\SubscriptionPortal;
 use Omnitrade\Request\Request;
+use Omnitrade\Request\SubscriptionPortal;
 use Omnitrade\Stripe\Accounts;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 
 /** The customer portal (POST /v1/billing_portal/sessions): card, invoices, cancellation. */
 final class SubscriptionPortalAction implements ActionInterface, ApiAwareInterface
@@ -34,6 +35,6 @@ final class SubscriptionPortalAction implements ActionInterface, ApiAwareInterfa
             'return_url' => $request->returnUrl,
             'locale' => $request->locale ? substr($request->locale, 0, 2) : null,
         ]);
-        $request->setResult((string) $session['url']);
+        $request->setResult(Data::cast($session['url'] ?? null));
     }
 }

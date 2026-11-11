@@ -12,6 +12,7 @@ use Omnitrade\Model\Payment;
 use Omnitrade\Request\Purchase;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\Sessions;
 
 /**
@@ -74,10 +75,12 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface, TagsAw
         if ($payment->idempotencyKey) {
             $session->setIdempotencyKeyHeader($payment->idempotencyKey);
         }
-        $data = $this->api->sendOmnipay($session)->getData();
+        $data = Data::map($this->api->sendOmnipay($session)->getData());
 
         if (empty($data['id']) || empty($data['url'])) {
-            throw new ProviderException('stripe', (string) ($data['error']['message'] ?? 'Stripe opened no Checkout session.'), $data['error']['code'] ?? null);
+            $error = Data::of($data)->data('error');
+
+            throw new ProviderException('stripe', $error->textOrNull('message') ?? 'Stripe opened no Checkout session.', $error->textOrNull('code'));
         }
 
         $request->setResult(Sessions::transaction($data));
@@ -138,9 +141,10 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface, TagsAw
     /** Whether the lines are listed: they and the shipping add up to the amount, with no discount to take off. */
     private static function listed(Payment $payment): bool
     {
-        return $payment->linesAddUp() && ($payment->discount?->amount ?? 0) <= 0;
+        return $payment->linesAddUp() && ($payment->discount->amount ?? 0) <= 0;
     }
 
+    /** @param array<string, string> $query */
     private static function withQuery(string $url, array $query): string
     {
         return $url.(str_contains($url, '?') ? '&' : '?').http_build_query($query);

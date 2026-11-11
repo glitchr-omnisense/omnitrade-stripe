@@ -6,9 +6,11 @@ use Omnitrade\Exception\InvalidNotificationException;
 use Omnitrade\Model\Line;
 use Omnitrade\Model\Money;
 use Omnitrade\Model\Payment;
+use Omnitrade\Model\PaymentMethod;
 use Omnitrade\Model\Status;
 use Omnitrade\Request\Authorize;
 use Omnitrade\Request\Purchase;
+use Omnitrade\Stripe\Data;
 use Omnitrade\Stripe\StripeGatewayFactory;
 use Omnitrade\Tests\Fixtures;
 use PHPUnit\Framework\TestCase;
@@ -22,32 +24,33 @@ final class StripeGatewayTest extends TestCase
     /** @var list<array{string, string, string, list<string>}> method, url, body, headers */
     private array $calls = [];
 
+    /** @param array<string, mixed> $options */
     private function gateway(array $options = []): \Omnitrade\GatewayInterface
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
             $body = $options['body'] ?? '';
             if (\is_callable($body)) {
                 $chunks = '';
-                while ('' !== $chunk = $body(8192)) {
+                while ('' !== $chunk = Data::cast($body(8192))) {
                     $chunks .= $chunk;
                 }
                 $body = $chunks;
             }
-            $this->calls[] = [$method, $url, (string) $body, $options['headers'] ?? []];
+            $this->calls[] = [$method, $url, Data::cast($body), Data::texts($options['headers'] ?? [])];
             $path = (string) parse_url($url, \PHP_URL_PATH);
 
             return match (true) {
-                'POST' === $method && '/v1/checkout/sessions' === $path => new MockResponse(json_encode(self::session('open', 'unpaid') + ['url' => 'https://checkout.stripe.com/c/pay/cs_test_1'])),
-                'GET' === $method && '/v1/checkout/sessions/cs_test_1' === $path => new MockResponse(json_encode(self::session('complete', 'paid') + ['payment_intent' => 'pi_test_1'])),
+                'POST' === $method && '/v1/checkout/sessions' === $path => new MockResponse(self::json(self::session('open', 'unpaid') + ['url' => 'https://checkout.stripe.com/c/pay/cs_test_1'])),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_1' === $path => new MockResponse(self::json(self::session('complete', 'paid') + ['payment_intent' => 'pi_test_1'])),
                 // Stripe gives the payment intent's id unless it is expanded; its charge says what was refunded.
-                'GET' === $method && '/v1/checkout/sessions/cs_test_refunded' === $path => new MockResponse(json_encode(['id' => 'cs_test_refunded'] + self::session('complete', 'paid') + ['payment_intent' => \in_array('payment_intent.latest_charge', self::expanded($url), true)
+                'GET' === $method && '/v1/checkout/sessions/cs_test_refunded' === $path => new MockResponse(self::json(['id' => 'cs_test_refunded'] + self::session('complete', 'paid') + ['payment_intent' => \in_array('payment_intent.latest_charge', self::expanded($url), true)
                     ? ['id' => 'pi_test_2', 'object' => 'payment_intent', 'amount' => 1250, 'latest_charge' => ['id' => 'ch_test_2', 'object' => 'charge', 'amount' => 1250, 'amount_refunded' => 1250, 'refunded' => true]]
                     : 'pi_test_2'])),
-                'GET' === $method && '/v1/checkout/sessions/cs_test_gone' === $path => new MockResponse(json_encode(self::session('expired', 'unpaid'))),
-                'GET' === $method && '/v1/payment_intents/pi_test_1' === $path => new MockResponse(json_encode(['id' => 'pi_test_1', 'object' => 'payment_intent', 'currency' => 'eur', 'latest_charge' => 'ch_test_1'])),
-                'POST' === $method && '/v1/refunds' === $path => new MockResponse(json_encode(['id' => 're_test_2', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 1250, 'currency' => 'eur', 'charge' => 'ch_test_1'])),
-                'POST' === $method && '/v1/charges/ch_test_1/refund' === $path => new MockResponse(json_encode(['id' => 're_test_1', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 500, 'currency' => 'eur'])),
-                default => new MockResponse(json_encode(['error' => ['message' => 'No such resource: '.$method.' '.$path]]), ['http_code' => 404]),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_gone' === $path => new MockResponse(self::json(self::session('expired', 'unpaid'))),
+                'GET' === $method && '/v1/payment_intents/pi_test_1' === $path => new MockResponse(self::json(['id' => 'pi_test_1', 'object' => 'payment_intent', 'currency' => 'eur', 'latest_charge' => 'ch_test_1'])),
+                'POST' === $method && '/v1/refunds' === $path => new MockResponse(self::json(['id' => 're_test_2', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 1250, 'currency' => 'eur', 'charge' => 'ch_test_1'])),
+                'POST' === $method && '/v1/charges/ch_test_1/refund' === $path => new MockResponse(self::json(['id' => 're_test_1', 'object' => 'refund', 'status' => 'succeeded', 'amount' => 500, 'currency' => 'eur'])),
+                default => new MockResponse(self::json(['error' => ['message' => 'No such resource: '.$method.' '.$path]]), ['http_code' => 404]),
             };
         });
 
@@ -69,11 +72,11 @@ final class StripeGatewayTest extends TestCase
     public function testTheApiVersionIsAnOption(): void
     {
         $this->gateway(['api_version' => '2025-03-31.basil'])->purchase(Fixtures::payment());
-        self::assertContains('Stripe-Version: 2025-03-31.basil', $this->calls[0][3]);
+        self::assertContains('Stripe-Version: 2025-03-31.basil', $this->call(0)[3]);
 
         $this->calls = [];
         $this->gateway(['api_version' => null])->purchase(Fixtures::payment());
-        self::assertEmpty(preg_grep('/^Stripe-Version:/i', $this->calls[0][3]), 'null: the account\'s default');
+        self::assertEmpty(preg_grep('/^Stripe-Version:/i', $this->call(0)[3]), 'null: the account\'s default');
     }
 
     public function testAPurchaseOpensACheckoutSessionTheBuyerIsSentTo(): void
@@ -84,19 +87,21 @@ final class StripeGatewayTest extends TestCase
         self::assertTrue($transaction->isRedirect());
         self::assertSame('cs_test_1', $transaction->reference);
         self::assertSame('https://checkout.stripe.com/c/pay/cs_test_1', $transaction->redirectUrl);
+        self::assertNotNull($transaction->amount);
         self::assertTrue($transaction->amount->equals(Money::of(1250, 'EUR')));
 
         [, , $body] = $this->calls[0];
-        parse_str($body, $sent);
-        self::assertSame('payment', $sent['mode']);
-        self::assertSame('ORDER-1042', $sent['client_reference_id']);
-        self::assertSame('camille@example.org', $sent['customer_email']);
-        self::assertSame('1250', $sent['line_items'][0]['price_data']['unit_amount'], 'the line listed on the page');
-        self::assertSame('Dix heures', $sent['line_items'][0]['price_data']['product_data']['name']);
-        self::assertSame('Autoliquidation', $sent['custom_text']['submit']['message'], 'the notice on the page');
-        self::assertSame('false', $sent['adaptive_pricing']['enabled']);
-        self::assertStringContainsString('session={CHECKOUT_SESSION_ID}', $sent['success_url'], 'the braces as Stripe wants them, not URL-encoded');
-        self::assertSame('https://shop.example/panier', $sent['cancel_url']);
+        parse_str($body, $query);
+        $sent = Data::of($query);
+        self::assertSame('payment', $sent->get('mode'));
+        self::assertSame('ORDER-1042', $sent->get('client_reference_id'));
+        self::assertSame('camille@example.org', $sent->get('customer_email'));
+        self::assertSame('1250', $sent->get('line_items.0.price_data.unit_amount'), 'the line listed on the page');
+        self::assertSame('Dix heures', $sent->get('line_items.0.price_data.product_data.name'));
+        self::assertSame('Autoliquidation', $sent->get('custom_text.submit.message'), 'the notice on the page');
+        self::assertSame('false', $sent->get('adaptive_pricing.enabled'));
+        self::assertStringContainsString('session={CHECKOUT_SESSION_ID}', $sent->text('success_url'), 'the braces as Stripe wants them, not URL-encoded');
+        self::assertSame('https://shop.example/panier', $sent->get('cancel_url'));
         self::assertTrue($gateway->supports(Purchase::class));
         self::assertFalse($gateway->supports(Authorize::class), 'Checkout takes the money when the buyer pays');
     }
@@ -140,13 +145,14 @@ final class StripeGatewayTest extends TestCase
         );
         $this->gateway()->purchase($payment);
 
-        parse_str($this->calls[0][2], $sent);
-        self::assertSame('1200', $sent['line_items'][0]['price_data']['unit_amount']);
-        self::assertSame('2', $sent['line_items'][0]['quantity']);
-        $rate = $sent['shipping_options'][0]['shipping_rate_data'];
-        self::assertSame('fixed_amount', $rate['type']);
-        self::assertSame('350', $rate['fixed_amount']['amount']);
-        self::assertSame('eur', $rate['fixed_amount']['currency']);
+        parse_str($this->calls[0][2], $query);
+        $sent = Data::of($query);
+        self::assertSame('1200', $sent->get('line_items.0.price_data.unit_amount'));
+        self::assertSame('2', $sent->get('line_items.0.quantity'));
+        $rate = $sent->data('shipping_options.0.shipping_rate_data');
+        self::assertSame('fixed_amount', $rate->get('type'));
+        self::assertSame('350', $rate->get('fixed_amount.amount'));
+        self::assertSame('eur', $rate->get('fixed_amount.currency'));
         self::assertSame(2750, self::charged($sent), 'what Stripe charges is the payment\'s amount');
     }
 
@@ -168,10 +174,11 @@ final class StripeGatewayTest extends TestCase
         );
         $this->gateway()->purchase($payment);
 
-        parse_str($this->calls[0][2], $sent);
-        self::assertCount(1, $sent['line_items']);
-        self::assertSame('Commande n° 1044', $sent['line_items'][0]['price_data']['product_data']['name']);
-        self::assertArrayNotHasKey('shipping_options', $sent, 'the shipping is inside the one line');
+        parse_str($this->calls[0][2], $query);
+        $sent = Data::of($query);
+        self::assertCount(1, $sent->list('line_items'));
+        self::assertSame('Commande n° 1044', $sent->get('line_items.0.price_data.product_data.name'));
+        self::assertArrayNotHasKey('shipping_options', $query, 'the shipping is inside the one line');
         self::assertSame(2750, self::charged($sent));
     }
 
@@ -208,7 +215,7 @@ final class StripeGatewayTest extends TestCase
     public function testANotificationIsCheckedThenRead(): void
     {
         $gateway = $this->gateway();
-        $event = json_encode(['id' => 'evt_1', 'type' => 'checkout.session.completed', 'data' => ['object' => self::session('complete', 'paid')]]);
+        $event = self::json(['id' => 'evt_1', 'type' => 'checkout.session.completed', 'data' => ['object' => self::session('complete', 'paid')]]);
         $time = time();
         $header = sprintf('t=%d,v1=%s', $time, hash_hmac('sha256', $time.'.'.$event, self::SECRET));
 
@@ -216,7 +223,7 @@ final class StripeGatewayTest extends TestCase
         self::assertSame('checkout.session.completed', $notification->event);
         self::assertSame('cs_test_1', $notification->reference);
         self::assertSame(Status::PAID, $notification->status);
-        self::assertTrue($notification->transaction->isPaid());
+        self::assertTrue($notification->transaction?->isPaid());
         self::assertSame('evt_1', $notification->id);
 
         $this->expectException(InvalidNotificationException::class);
@@ -230,18 +237,35 @@ final class StripeGatewayTest extends TestCase
     public function testThePaymentMethodsForAnAmountInAnotherCurrency(): void
     {
         $gateway = (new StripeGatewayFactory(new MockHttpClient()))->create(['api_key' => 'sk_test_x', 'payment_methods' => ['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna']]);
-        $codes = static fn (array $methods): array => array_map(static fn ($m) => $m->code, $methods);
 
-        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], $codes($gateway->paymentMethods(Money::of(1250, 'EUR'), 'NL')));
-        self::assertSame(['card', 'klarna'], $codes($gateway->paymentMethods(Money::of(1250, 'GBP'), 'GB')));
-        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], $codes($gateway->paymentMethods()), 'no amount: all of them');
+        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], self::codes($gateway->paymentMethods(Money::of(1250, 'EUR'), 'NL')));
+        self::assertSame(['card', 'klarna'], self::codes($gateway->paymentMethods(Money::of(1250, 'GBP'), 'GB')));
+        self::assertSame(['card', 'sepa_debit', 'ideal', 'bancontact', 'eps', 'klarna'], self::codes($gateway->paymentMethods()), 'no amount: all of them');
     }
 
     public function testThePaymentMethodsAreWhatCheckoutOffers(): void
     {
         $methods = $this->gateway()->paymentMethods();
         self::assertSame('card', $methods[0]->code);
-        self::assertContains('apple_pay', array_map(fn ($m) => $m->code, $methods));
+        self::assertContains('apple_pay', self::codes($methods));
+    }
+
+    /**
+     * @param array<PaymentMethod> $methods
+     *
+     * @return array<string>
+     */
+    private static function codes(array $methods): array
+    {
+        return array_map(static fn (PaymentMethod $m) => $m->code, $methods);
+    }
+
+    /** @return array{string, string, string, list<string>} the call made $index-th */
+    private function call(int $index): array
+    {
+        self::assertArrayHasKey($index, $this->calls);
+
+        return $this->calls[$index];
     }
 
     /** @return list<string> the expand[] of a URL's query */
@@ -249,20 +273,26 @@ final class StripeGatewayTest extends TestCase
     {
         parse_str((string) parse_url($url, \PHP_URL_QUERY), $query);
 
-        return array_values((array) ($query['expand'] ?? []));
+        return Data::texts($query['expand'] ?? []);
     }
 
     /** What Stripe charges for a session sent as $sent: its lines, plus its shipping rate. */
-    private static function charged(array $sent): int
+    private static function charged(Data $sent): int
     {
         $total = 0;
-        foreach ($sent['line_items'] as $line) {
-            $total += (int) $line['price_data']['unit_amount'] * (int) $line['quantity'];
+        foreach ($sent->list('line_items') as $line) {
+            $total += $line->number('price_data.unit_amount') * $line->number('quantity');
         }
 
-        return $total + (int) ($sent['shipping_options'][0]['shipping_rate_data']['fixed_amount']['amount'] ?? 0);
+        return $total + $sent->number('shipping_options.0.shipping_rate_data.fixed_amount.amount');
     }
 
+    private static function json(mixed $value): string
+    {
+        return json_encode($value, \JSON_THROW_ON_ERROR);
+    }
+
+    /** @return array<string, mixed> */
     private static function session(string $status, string $paymentStatus): array
     {
         return ['id' => 'cs_test_1', 'object' => 'checkout.session', 'status' => $status, 'payment_status' => $paymentStatus, 'amount_total' => 1250, 'currency' => 'eur', 'payment_method_types' => ['card'], 'created' => 1760000000, 'metadata' => []];
