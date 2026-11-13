@@ -4,6 +4,39 @@ Stripe for [omnisense/omnitrade](https://github.com/glitchr-omnisense/omnitrade)
 through Checkout (Stripe's hosted page), what was paid, refunds, the webhook's events, and the
 catalogue kept in Stripe's Products - on omnipay/stripe, through the application's HTTP client.
 
+## Install and a first call
+
+```sh
+composer require omnitrade/stripe
+```
+
+No account for this first call: Stripe's answer is recorded (Symfony's `MockHttpClient` answers in
+place of the API), so nothing leaves the process. With your own credentials, give the factory your
+HTTP client (or none: it makes its own).
+
+```php
+<?php
+
+require __DIR__.'/vendor/autoload.php';
+
+use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
+use Omnitrade\Stripe\StripeGatewayFactory;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
+
+// Stripe's answer (the Checkout session), recorded: no account, and nothing leaves the process.
+$http = new MockHttpClient(new MockResponse('{"id": "cs_test_1", "object": "checkout.session", "status": "open", "payment_status": "unpaid", "amount_total": 1250, "currency": "eur", "url": "https://checkout.stripe.com/c/pay/cs_test_1"}'));
+$gateway = (new StripeGatewayFactory($http))->create(['api_key' => 'sk_test_not_a_key']);
+
+$transaction = $gateway->purchase(new Payment(amount: Money::of(1250, 'EUR'), reference: 'ORDER-1042', returnUrl: 'https://shop.example/back'));
+echo $transaction->status->value, ' ', $transaction->redirectUrl, "\n";   // pending https://checkout.stripe.com/c/pay/cs_test_1
+```
+
+A real payment needs a Stripe account: its secret key (below), a test key first.
+
+## Configuration
+
 ```php
 $gateway = (new StripeGatewayFactory($http))->create(['api_key' => '...', 'webhook_secret' => '...']);   // $http: the application's HTTP client; none given, the factory makes its own
 ```

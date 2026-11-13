@@ -20,8 +20,8 @@
         "nyholm/psr7": "^1.8",
         "omnipay/common": "^3.0",
         "omnipay/stripe": "^3.2",
-        "omnisense/contracts": "^1.0@dev",
-        "omnisense/omnitrade": "^1.0@dev",
+        "omnisense/contracts": "^1.0",
+        "omnisense/omnitrade": "^1.0",
         "php-http/discovery": "^1.14",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0",
@@ -46,6 +46,9 @@
     "extra": {
         "omnisense": {
             "policy": "policy.json"
+        },
+        "branch-alias": {
+            "dev-1.x": "1.x-dev"
         }
     },
     "config": {

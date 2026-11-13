@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased (1.x)
+## [Unreleased]
+
+## [1.0.0] - 2026-11-13
+
+The first stable release: it installs with Composer's default minimum-stability (stable).
+
+### Release
+- Requires `omnisense/contracts` `^1.0` and `omnisense/omnitrade` `^1.0`, stable versions, where it
+  required `@dev` ones; `extra.branch-alias` `dev-1.x` → `1.x-dev`.
+- CI: `.github/workflows/ci.yml` (glitchr-studio/ci's php-package.yml: the package installed alone,
+  PHPUnit, PHPStan against its baseline, a consumer install) and `release.yml` (that CI on the tag,
+  then glitchr-studio/ci's php-release.yml); `phpunit.xml.dist` runs the package's own tests.
+- README: the install line and a first call on a recorded answer (no account, nothing sent).
 
 ### Added
 - `policy.json` (`extra.omnisense.policy`): 25 calls a second, 5 Connect account creations a second (the
@@ -54,4 +66,3 @@
 - `fetch()` reads a refunded session REFUNDED (or PARTIALLY_REFUNDED), not PAID: it asks Stripe to
   expand the session's payment intent and its latest charge (`expand[]=payment_intent.latest_charge`),
   whose `amount_refunded` says what was refunded.
-
