@@ -83,7 +83,7 @@ final class StripeWebhookEndpointsTest extends TestCase
         self::assertInstanceOf(Webhook::class, $webhook);
         self::assertSame('we_new1', $webhook->id);
         self::assertSame(self::URL, $webhook->url);
-        self::assertSame(['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'checkout.session.expired'], $webhook->events);
+        self::assertSame(['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'checkout.session.expired', 'payment_intent.succeeded', 'payment_intent.payment_failed'], $webhook->events);
         self::assertSame('whsec_made_by_the_mock_1', $webhook->secret);
         self::assertArrayNotHasKey('secret', $webhook->raw, 'the secret is in one place only');
 

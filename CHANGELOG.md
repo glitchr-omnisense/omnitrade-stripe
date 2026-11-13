@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-13
+
+Saved payment methods and their off-session charge. Additive: nothing that worked before changes,
+except that `payment_intent.*` events now carry a status (they had none).
+
+### Added
+- `SetupMethod`: Checkout in `setup` mode for a Stripe customer, made first (`POST /v1/customers`,
+  tagged) when the request names none; answered as a `MethodSetup` (the page, the customer).
+- `FetchSavedMethods`: the customer's PaymentMethods, one call per type saved (`card` by default),
+  as `SavedMethod`s ("Visa •••• 4242", brand, last four digits, expiry).
+- `RemoveSavedMethod`: the method read, then detached only when it is that customer's
+  (`not_this_customer` otherwise, nothing detached).
+- `Purchase` of a `Payment` with `savedMethod`: a PaymentIntent confirmed off-session with the
+  payment's idempotency key; a card refused is a REFUSED transaction with Stripe's decline code; the
+  bank's 3-D Secure check confirms it again on-session with `returnUrl`, PENDING with the bank's
+  page as `redirectUrl` (key `:confirm`).
+- `fetch('pi_...')` reads a payment intent (`Intents::transaction()`).
+- `notify()`: `payment_intent.succeeded` PAID, `payment_intent.payment_failed` REFUSED (PENDING when its
+  error is `authentication_required`: Stripe sends it for the off-session attempt while the buyer is
+  sent to the bank's page), `payment_intent.canceled` CANCELLED, the intent as the transaction.
+- `Api::attempt()`: a POST whose HTTP 402 (a card's refusal) is answered as Stripe's error body.
+- Tests: `StripeSavedMethodsTest` (6), on answers shaped as Stripe's API reference.
+
+### Changed
+- `RegisterWebhook` without events (`WebhookEndpoints::EVENTS`) also subscribes the endpoint to
+  `payment_intent.succeeded` and `payment_intent.payment_failed`. An endpoint registered before
+  keeps its events until registered again.
+- Requires `omnisense/omnitrade` `^1.1` (the requests, `SavedMethod`, `MethodSetup`,
+  `Payment::$savedMethod`).
+
 ## [1.0.0] - 2026-11-13
 
 The first stable release: it installs with Composer's default minimum-stability (stable).

@@ -100,3 +100,27 @@ Express accounts for those the platform pays (`createAccount()`, `accountLink()`
 (`subscribe()`, `fetchSubscription()`, `cancelSubscription()`, `subscriptionPortal()`), and the
 `account.updated` and `customer.subscription.*` events read by `notify()`. See
 [docs/connect.md](docs/connect.md).
+
+## Saved methods (1.1)
+
+A card saved once on Checkout's setup page (`SetupMethod`), listed (`FetchSavedMethods`), removed
+(`RemoveSavedMethod`), and charged without a page by a `Payment` naming it (`savedMethod`): a
+PaymentIntent confirmed off-session, the bank's 3-D Secure check, when it asks, through its own page
+(a PENDING transaction's `redirectUrl`), `payment_intent.succeeded` saying when it is paid. The
+site keeps the customer's and the method's ids, never a card number. See
+[docs/index.md](docs/index.md#behaviour).
+
+```php
+use Omnitrade\Model\Customer;
+use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
+use Omnitrade\Request\FetchSavedMethods;
+use Omnitrade\Request\SetupMethod;
+
+$setup = $stripe->execute(new SetupMethod(new Customer('alice@example.org'), 'https://shop.example/saved'))->getSetup();
+// send the buyer to $setup->redirectUrl; keep $setup->customer (cus_...)
+$card = $stripe->execute(new FetchSavedMethods($setup->customer))->getMethods()[0];   // "Visa •••• 4242"
+$paid = $stripe->purchase(new Payment(Money::of(1990, 'EUR'), 'ORDER-7', customer: new Customer(reference: $setup->customer),
+    returnUrl: 'https://shop.example/orders/7', idempotencyKey: 'order-7-attempt-1', savedMethod: $card->reference));
+// PAID, REFUSED, or PENDING with the bank's page in $paid->redirectUrl
+```

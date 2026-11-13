@@ -9,10 +9,13 @@ use Omnitrade\Action\TagsAwareInterface;
 use Omnitrade\Action\TagsAwareTrait;
 use Omnitrade\Exception\ProviderException;
 use Omnitrade\Model\Payment;
+use Omnitrade\Model\Status;
+use Omnitrade\Model\Transaction;
 use Omnitrade\Request\Purchase;
 use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Api;
 use Omnitrade\Stripe\Data;
+use Omnitrade\Stripe\Intents;
 use Omnitrade\Stripe\Sessions;
 
 /**
@@ -51,6 +54,11 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface, TagsAw
     {
         \assert($request instanceof Purchase);
         $payment = $request->payment;
+        if (null !== $payment->savedMethod && '' !== $payment->savedMethod) {
+            $request->setResult($this->offSession($payment));
+
+            return;
+        }
         if (null === $payment->returnUrl) {
             throw new ProviderException('stripe', 'A Checkout session needs a returnUrl: where Stripe sends the buyer back.');
         }
@@ -84,6 +92,91 @@ final class PurchaseAction implements ActionInterface, ApiAwareInterface, TagsAw
         }
 
         $request->setResult(Sessions::transaction($data));
+    }
+
+    /**
+     * A saved method charged with no page (Payment::$savedMethod): a PaymentIntent confirmed at
+     * once, off-session, for the payment's customer. Paid at once is PAID; a card refused is
+     * REFUSED, with Stripe's message and decline code. When the bank asks for its buyer
+     * (authentication_required: 3-D Secure), the intent is confirmed again with the payment's
+     * returnUrl, on-session: PENDING, the bank's page as the redirectUrl - the buyer goes there,
+     * comes back to returnUrl, and payment_intent.succeeded (notify()) or fetch() says how it
+     * ended. Without a returnUrl there is nowhere to come back to: REFUSED, code
+     * authentication_required.
+     *
+     * The idempotency key is the intent's, and with ":confirm" its confirmation's: the same
+     * purchase asked twice charges once.
+     */
+    private function offSession(Payment $payment): Transaction
+    {
+        $metadata = $this->tags()->merge($payment->metadata + ['reference' => $payment->reference]) ?: null;
+        $intent = $this->api->attempt('/v1/payment_intents', [
+            'amount' => $payment->amount->amount,
+            'currency' => strtolower($payment->amount->currency),
+            'customer' => $payment->customer?->reference,
+            'payment_method' => $payment->savedMethod,
+            'off_session' => true,
+            'confirm' => true,
+            'description' => $payment->description ?? $payment->reference,
+            'receipt_email' => $payment->customer?->email,
+            'metadata' => $metadata,
+            'transfer_data' => null !== $payment->destination ? ['destination' => $payment->destination] : null,
+            'application_fee_amount' => $payment->applicationFee?->amount,
+        ], $payment->idempotencyKey);
+
+        $error = Data::of($intent)->data('error');
+        if ($error->has('code') || $error->has('message')) {
+            $refused = $error->fields('payment_intent');
+            if (!isset($refused['id'])) {
+                throw new ProviderException('stripe', $error->textOrNull('message') ?? 'Stripe refused the payment.', $error->textOrNull('decline_code') ?? $error->textOrNull('code'));
+            }
+            if (!Intents::needsTheBuyer($error)) {
+                return self::refused($refused, $error);
+            }
+            $intent = $refused;
+        }
+
+        $read = Data::of($intent);
+        if (\in_array($read->textOrNull('status'), ['requires_action', 'requires_payment_method', 'requires_confirmation'], true)
+            && 'redirect_to_url' !== $read->textOrNull('next_action.type')) {
+            if (null === $payment->returnUrl) {
+                return self::refused($intent, Data::of(['code' => 'authentication_required', 'message' => 'The bank asks the buyer to confirm, and there is no page to send them back to.']));
+            }
+            // The buyer is asked: confirmed again on-session, Stripe answering with the bank's page.
+            $intent = $this->api->attempt('/v1/payment_intents/'.$read->text('id').'/confirm', [
+                'payment_method' => $payment->savedMethod,
+                'return_url' => $payment->returnUrl,
+            ], null !== $payment->idempotencyKey ? $payment->idempotencyKey.':confirm' : null);
+            $error = Data::of($intent)->data('error');
+            if ($error->has('code') || $error->has('message')) {
+                return self::refused($error->has('payment_intent') ? $error->fields('payment_intent') : Data::map($read->toArray()), $error);
+            }
+        }
+
+        return Intents::transaction($intent);
+    }
+
+    /**
+     * The intent Stripe refused, REFUSED whatever status it was left in, with the error's message and code.
+     *
+     * @param array<string, mixed> $intent
+     */
+    private static function refused(array $intent, Data $error): Transaction
+    {
+        $transaction = Intents::transaction($intent);
+
+        return new Transaction(
+            provider: 'stripe',
+            reference: $transaction->reference,
+            status: Status::REFUSED,
+            amount: $transaction->amount,
+            message: $error->textOrNull('message') ?? $transaction->message,
+            providerCode: $error->textOrNull('decline_code') ?? $error->textOrNull('code') ?? $transaction->providerCode,
+            method: $transaction->method,
+            metadata: $transaction->metadata,
+            createdAt: $transaction->createdAt,
+            raw: $intent,
+        );
     }
 
     /** @return list<array<string, mixed>> the session's line items, which with shipping() charge the payment's amount */

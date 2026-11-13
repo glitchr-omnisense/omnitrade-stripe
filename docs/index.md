@@ -103,6 +103,8 @@ one line of the amount named by `description` (else `reference`); `returnUrl` th
 | `AffiliateLink` | no |
 | `CreateAccount`, `AccountLink`, `FetchAccount` | yes (Connect) |
 | `Subscribe`, `FetchSubscription`, `CancelSubscription`, `SubscriptionPortal` | yes |
+| `SetupMethod`, `FetchSavedMethods`, `RemoveSavedMethod` (1.1) | yes (Checkout in setup mode, a customer's PaymentMethods) |
+| `Purchase` with `Payment::$savedMethod` (1.1) | yes (a PaymentIntent confirmed off-session, 3-D Secure through the bank's page) |
 
 ## Behaviour
 
@@ -143,10 +145,44 @@ euros only and are left out of an amount in another currency ([payment method
 support](https://docs.stripe.com/payments/payment-methods/payment-method-support)); the country is
 not read, Stripe choosing on its page by the buyer's.
 
+**Saved methods (1.1).** `SetupMethod($customer, $returnUrl, ...)` opens Checkout in `setup`
+mode for a Stripe customer: `$customer->reference` when the buyer is one, else a customer made
+first (`POST /v1/customers`: e-mail, name, phone, the tags and the request's metadata; its
+`Idempotency-Key` the request's key plus `:customer`). The session (`POST /v1/checkout/sessions`,
+`payment_method_types` the request's method, else the `payment_methods` option, else `card`; the
+same metadata on the session and its setup intent) is answered as a `MethodSetup`: its `url` to
+send the buyer to, the customer to keep. Checkout attaches the method to that customer
+([Set up future payments](https://docs.stripe.com/payments/save-and-reuse?platform=checkout)).
+`FetchSavedMethods($customer)` lists `GET /v1/payment_methods?customer=...&type=...` for each type
+saved (`card` by default; the API version this code runs on asks for a type), each a `SavedMethod`:
+a card labelled "Visa •••• 4242" with its brand, last four digits and expiry - never more of the
+number, which Stripe does not give anyway. `RemoveSavedMethod($customer, $reference)` reads the
+method first and detaches it (`POST /v1/payment_methods/{id}/detach`) only when it is that
+customer's; another's is a `ProviderException` with code `not_this_customer`, nothing detached.
+
+**Charging a saved method (1.1).** A `Payment` with `savedMethod` (and the customer in
+`$customer->reference`) is a PaymentIntent created and confirmed at once (`POST
+/v1/payment_intents`: amount, currency, customer, payment_method, `off_session=true`,
+`confirm=true`, description, receipt e-mail, the tags and metadata plus `reference`, a destination
+and its fee; `Idempotency-Key` the payment's key). `succeeded` is PAID, the intent's id the
+transaction's reference. A card refused (HTTP 402, `card_declined`...) is a REFUSED transaction
+carrying Stripe's message and `decline_code` as `providerCode` - not an exception -, with no second
+try. When the bank asks for its buyer (`authentication_required`: 3-D Secure, SCA), the intent is
+confirmed again on-session with the payment's `returnUrl` (`POST
+/v1/payment_intents/{id}/confirm`, key plus `:confirm`): Stripe answers `requires_action` with
+`next_action.redirect_to_url`, and the transaction is PENDING with that page as `redirectUrl`
+([Charge a saved card](https://docs.stripe.com/payments/save-and-reuse?platform=checkout#charge-saved-payment-method)).
+The buyer confirms there, Stripe sends them back to `returnUrl`, and `payment_intent.succeeded`
+(or `payment_failed`) tells the site. Without a `returnUrl`, REFUSED with code
+`authentication_required`. `fetch('pi_...')` reads the intent (`GET /v1/payment_intents/{id}`):
+`requires_capture` AUTHORIZED, `canceled` CANCELLED, `requires_payment_method` after an attempt
+REFUSED (PENDING when the attempt's error is `authentication_required`), the others PENDING; a refund read from its charge. Refunds take the `pi_...` as before.
+
 **Registering the webhook.** `RegisterWebhook($url, $events = [])` lists the account's endpoints
 (`GET /v1/webhook_endpoints`, every page), deletes those on the same address, and makes one
 (`POST /v1/webhook_endpoints`) for `$events`, or, none given, the four `checkout.session.*` events
-above (`WebhookEndpoints::EVENTS`). The endpoint's `api_version` is the gateway's `api_version`
+and, since 1.1, `payment_intent.succeeded` and `payment_intent.payment_failed` (a saved method's
+charge) - `WebhookEndpoints::EVENTS`. The endpoint's `api_version` is the gateway's `api_version`
 option (`2020-08-27` by default; `null`: the account's default), so its events come in the version
 `notify()` reads. The answer is a `Webhook` whose `secret` is the endpoint's `whsec_...`: Stripe
 gives it at creation only, which is why an address registered again is deleted then made, with a
@@ -170,6 +206,9 @@ seconds. Then the event:
 | `checkout.session.completed`, `checkout.session.async_payment_succeeded` | PAID when the session's `payment_status` is `paid`, else PENDING | `transaction` (the session) |
 | `checkout.session.expired` | EXPIRED | `transaction` |
 | `checkout.session.async_payment_failed` | REFUSED | `transaction` |
+| `payment_intent.succeeded` (1.1) | PAID | `transaction` (the intent: a saved method's charge) |
+| `payment_intent.payment_failed` (1.1) | REFUSED; PENDING when its error is `authentication_required` (the off-session attempt the bank answered "ask the buyer": they may still confirm on its page) | `transaction` |
+| `payment_intent.canceled` (1.1) | CANCELLED | `transaction` |
 | `account.updated` | - | `account` |
 | `customer.subscription.created`, `.updated`, `.deleted` | - | `subscription` |
 | `product.created`, `product.updated` | - | `product`, with its active prices (one call) |
@@ -180,8 +219,11 @@ seconds. Then the event:
 `reference` is the event's object's id; `id` the event's. A body that is not a Stripe event is a
 `ProviderException`. Subscribe the endpoint to `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`, `checkout.session.expired`,
-`checkout.session.async_payment_failed`, and to the catalogue's, Connect's and subscriptions'
-events when used.
+`checkout.session.async_payment_failed`, to `payment_intent.succeeded` and
+`payment_intent.payment_failed` when saved methods are charged, and to the catalogue's, Connect's
+and subscriptions' events when used. A Checkout payment's own `payment_intent.*` events carry the
+intent's id, not the session's: a site that keeps the session's finds nothing under it and ignores
+them, as before.
 
 **Calls.** omnipay sends the secret key as HTTP basic authentication; the REST calls as a bearer
 token, form-encoded (`a[b][c]=...`, booleans `true`/`false`, `null` values left out), with a
@@ -281,13 +323,17 @@ failure](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/errors.md#
 
 ## Verified, and not
 
-Tested offline, 38 tests on answers shaped as Stripe's API reference gives them:
+Tested offline, 44 tests on answers shaped as Stripe's API reference gives them:
 `Tests/StripeGatewayTest.php` (a Checkout session opened, a session fetched, a refund on its
 charge with its idempotency key, a refund without an amount in full, a refunded session fetched REFUNDED, the shipping as Checkout's
 shipping rate and a discount charged as one line, a webhook checked then read, the payment methods),
 `Tests/StripeConnectTest.php` (an Express account opened then completed on Stripe's page, a
 payment sent to a connected account with the platform's fee, the fee's checks, Stripe's errors, a
 subscription started on Checkout, read, stopped and managed, the account and subscription events),
+`Tests/StripeSavedMethodsTest.php` (1.1: a card saved on Checkout's setup page for a customer
+made for it, the customer's cards listed and only theirs detached, a saved card charged
+off-session once, a refusal with its decline code, the bank's check sending the buyer to its page
+then the webhook saying paid, the bank's check without a page to come back to),
 `Tests/StripeCatalogueTest.php` (no stock, pages, `updatedSince` among each page, search, a variant
 per price, products without prices and recurring prices, addresses and unknown ids, product and
 price events) and `Tests/StripeContractTest.php`, the family's conformance suite. The suite found
@@ -295,8 +341,9 @@ omnipay's network failures escaping as omnipay's exception; they now go through
 `Api::sendOmnipay()`.
 
 Not verified: no call was made to Stripe, in test mode or live; no recorded answer was captured
-from a real account (the shipping rate, the expanded charge and the full refund follow Stripe's
-API reference).
+from a real account (the shipping rate, the expanded charge, the full refund, the setup session,
+the off-session intent, its 402 body and the confirmation's `redirect_to_url` follow Stripe's API
+reference).
 
 ## Responsibility
 

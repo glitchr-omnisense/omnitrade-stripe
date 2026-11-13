@@ -13,6 +13,7 @@ use Omnitrade\Request\Request;
 use Omnitrade\Stripe\Accounts;
 use Omnitrade\Stripe\Api;
 use Omnitrade\Stripe\Data;
+use Omnitrade\Stripe\Intents;
 use Omnitrade\Stripe\Products;
 use Omnitrade\Stripe\Sessions;
 
@@ -20,8 +21,12 @@ use Omnitrade\Stripe\Sessions;
  * A webhook event, its signature checked: the Checkout session events read
  * as what they mean for the transaction - completed and async_payment_succeeded
  * with a paid session is PAID, expired and async_payment_failed is EXPIRED /
- * REFUSED. Any other event is handed back with no status, to ignore or to
- * read from $raw.
+ * REFUSED. payment_intent.succeeded, payment_failed and canceled - a saved
+ * method's charge (Payment::$savedMethod), its reference the intent's id -
+ * are PAID, REFUSED and CANCELLED, the intent as their transaction - a
+ * payment_failed whose error is the bank asking for its buyer
+ * (authentication_required) PENDING: they may still confirm on its page. Any other
+ * event is handed back with no status, to ignore or to read from $raw.
  *
  * account.updated carries the connected account ($account), the
  * customer.subscription.* events the subscription ($subscription); a
@@ -69,8 +74,13 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
             'checkout.session.completed', 'checkout.session.async_payment_succeeded' => 'paid' === ($object['payment_status'] ?? null) ? Status::PAID : Status::PENDING,
             'checkout.session.expired' => Status::EXPIRED,
             'checkout.session.async_payment_failed' => Status::REFUSED,
+            'payment_intent.succeeded' => Status::PAID,
+            // The off-session attempt the bank answered with "ask the buyer" fails too: PENDING, the buyer is on its page.
+            'payment_intent.payment_failed' => Intents::needsTheBuyer(Data::of($object)->data('last_payment_error')) ? Status::PENDING : Status::REFUSED,
+            'payment_intent.canceled' => Status::CANCELLED,
             default => null,
         };
+        $intent = 'payment_intent' === ($object['object'] ?? null) ? $object : null;
 
         $reference = $read->textOrNull('id');
         $product = null;
@@ -86,7 +96,7 @@ final class NotifyAction implements ActionInterface, ApiAwareInterface
             event: $event['type'],
             reference: $reference,
             status: $status,
-            transaction: $session ? Sessions::transaction($session) : null,
+            transaction: $session ? Sessions::transaction($session) : ($intent ? Intents::transaction($intent) : null),
             id: Data::of($event)->textOrNull('id'),
             raw: $event,
             product: $product,

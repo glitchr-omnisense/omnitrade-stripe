@@ -17,6 +17,9 @@ final class WebhookEndpoints
         'checkout.session.async_payment_succeeded',
         'checkout.session.async_payment_failed',
         'checkout.session.expired',
+        // A saved method's charge (Payment::$savedMethod, 1.1): paid, or refused after the bank's check.
+        'payment_intent.succeeded',
+        'payment_intent.payment_failed',
     ];
 
     /** @return list<array<string, mixed>> every endpoint of the account, page after page */

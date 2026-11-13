@@ -11,6 +11,7 @@ use Omnitrade\Stripe\Action\DeleteWebhookAction;
 use Omnitrade\Stripe\Action\FetchAccountAction;
 use Omnitrade\Stripe\Action\FetchProductAction;
 use Omnitrade\Stripe\Action\FetchProductsAction;
+use Omnitrade\Stripe\Action\FetchSavedMethodsAction;
 use Omnitrade\Stripe\Action\FetchSubscriptionAction;
 use Omnitrade\Stripe\Action\FetchTransactionAction;
 use Omnitrade\Stripe\Action\FetchWebhooksAction;
@@ -19,6 +20,8 @@ use Omnitrade\Stripe\Action\NotifyAction;
 use Omnitrade\Stripe\Action\PurchaseAction;
 use Omnitrade\Stripe\Action\RefundAction;
 use Omnitrade\Stripe\Action\RegisterWebhookAction;
+use Omnitrade\Stripe\Action\RemoveSavedMethodAction;
+use Omnitrade\Stripe\Action\SetupMethodAction;
 use Omnitrade\Stripe\Action\SubscribeAction;
 use Omnitrade\Stripe\Action\SubscriptionPortalAction;
 
@@ -42,8 +45,14 @@ use Omnitrade\Stripe\Action\SubscriptionPortalAction;
  *     active_only: false                             # true: fetchProducts() lists the active products only
  *     api_version: '2020-08-27'                      # Stripe-Version of every call; null: the account's default
  *
+ * Saved methods (1.1): Checkout in setup mode saves a card for a Stripe
+ * customer (Request\SetupMethod), FetchSavedMethods lists the customer's,
+ * RemoveSavedMethod detaches one, and a Payment naming one (savedMethod) is a
+ * PaymentIntent confirmed off-session - 3-D Secure, when the bank asks for it,
+ * through the bank's page (a PENDING transaction's redirectUrl).
+ *
  * No authorizations: Checkout takes the money when the buyer pays (a session
- * in "setup"/"authorize" mode is not offered here).
+ * in "authorize" mode is not offered here).
  */
 final class StripeGatewayFactory extends GatewayFactory
 {
@@ -77,6 +86,9 @@ final class StripeGatewayFactory extends GatewayFactory
             'omnitrade.action.webhooks' => new FetchWebhooksAction(),
             'omnitrade.action.webhook_delete' => new DeleteWebhookAction(),
             'omnitrade.action.methods' => static fn (Config $c) => new GetPaymentMethodsAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
+            'omnitrade.action.setup_method' => static fn (Config $c) => new SetupMethodAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
+            'omnitrade.action.saved_methods' => static fn (Config $c) => new FetchSavedMethodsAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
+            'omnitrade.action.remove_saved_method' => new RemoveSavedMethodAction(),
         ]);
     }
 }

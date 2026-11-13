@@ -124,6 +124,24 @@ final class Api
     }
 
     /**
+     * post(), where a card's refusal is an answer rather than a failure: Stripe's HTTP 402
+     * (request_failed - a card declined, a payment that needs its buyer, authentication_required)
+     * comes back as its body, ['error' => [code, decline_code, message, payment_intent...]], for
+     * the caller to read. Anything else - a network failure, a body that is not JSON, a 4xx that
+     * is not a card's, a 5xx, a rate limit - fails as post() does.
+     *
+     * @param array<string, mixed> $parameters
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ProviderException
+     */
+    public function attempt(string $path, array $parameters = [], ?string $idempotencyKey = null): array
+    {
+        return $this->send('POST', $path, $parameters, $idempotencyKey, true);
+    }
+
+    /**
      * @param array<string, mixed> $parameters
      *
      * @return array<string, mixed>
@@ -135,10 +153,11 @@ final class Api
 
     /**
      * @param array<string, mixed> $parameters
+     * @param bool                 $cardRefusals a 402 is answered, not thrown (attempt())
      *
      * @return array<string, mixed>
      */
-    private function send(string $method, string $path, array $parameters, ?string $idempotencyKey = null): array
+    private function send(string $method, string $path, array $parameters, ?string $idempotencyKey = null, bool $cardRefusals = false): array
     {
         Throttle::before($this->backoff);
         array_walk_recursive($parameters, static function (&$value): void {
@@ -164,6 +183,9 @@ final class Api
         Throttle::after($this->backoff, 'stripe', $status, $headers, self::refusal($data));
         if (!\is_array($data)) {
             throw Redaction::withoutArguments(new ProviderException('stripe', sprintf('Stripe answered HTTP %d with a body that is not JSON.', $status)));
+        }
+        if ($cardRefusals && 402 === $status && \is_array($data['error'] ?? null)) {
+            return Data::map($data);
         }
         if ($status >= 400 || isset($data['error'])) {
             throw self::failure($data, $status);
