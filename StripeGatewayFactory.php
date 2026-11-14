@@ -6,6 +6,7 @@ use Omnitrade\Config;
 use Omnitrade\GatewayFactory;
 use Omnitrade\Stripe\Action\AccountLinkAction;
 use Omnitrade\Stripe\Action\CancelSubscriptionAction;
+use Omnitrade\Stripe\Action\CompleteMethodSetupAction;
 use Omnitrade\Stripe\Action\CreateAccountAction;
 use Omnitrade\Stripe\Action\DeleteWebhookAction;
 use Omnitrade\Stripe\Action\FetchAccountAction;
@@ -46,7 +47,8 @@ use Omnitrade\Stripe\Action\SubscriptionPortalAction;
  *     api_version: '2020-08-27'                      # Stripe-Version of every call; null: the account's default
  *
  * Saved methods (1.1): Checkout in setup mode saves a card for a Stripe
- * customer (Request\SetupMethod), FetchSavedMethods lists the customer's,
+ * customer (Request\SetupMethod), CompleteMethodSetup (1.2) reads the method
+ * the session saved once the buyer is back, FetchSavedMethods lists the customer's,
  * RemoveSavedMethod detaches one, and a Payment naming one (savedMethod) is a
  * PaymentIntent confirmed off-session - 3-D Secure, when the bank asks for it,
  * through the bank's page (a PENDING transaction's redirectUrl).
@@ -87,6 +89,7 @@ final class StripeGatewayFactory extends GatewayFactory
             'omnitrade.action.webhook_delete' => new DeleteWebhookAction(),
             'omnitrade.action.methods' => static fn (Config $c) => new GetPaymentMethodsAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
             'omnitrade.action.setup_method' => static fn (Config $c) => new SetupMethodAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
+            'omnitrade.action.complete_method_setup' => new CompleteMethodSetupAction(),
             'omnitrade.action.saved_methods' => static fn (Config $c) => new FetchSavedMethodsAction(array_map(Data::cast(...), (array) $c['payment_methods'])),
             'omnitrade.action.remove_saved_method' => new RemoveSavedMethodAction(),
         ]);

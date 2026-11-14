@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-14
+
+omnisense/omnitrade 1.2's completion of a saved method's setup. Additive: nothing that worked before
+changes.
+
+### Added
+- `CompleteMethodSetup` (`MethodSetup::$reference`, the `cs_...` of a Checkout session in setup
+  mode, and its customer): the session read with its SetupIntent's method expanded (`GET
+  /v1/checkout/sessions/{id}?expand[]=setup_intent.payment_method`) and that method answered as a
+  `SavedMethod` - Checkout already attached it to the customer, so only reads are sent and the same
+  method comes back when asked twice. Another customer's session, a session not in setup mode or
+  an id that is not a session's: `not_this_customer`; a session still open or expired, or its
+  SetupIntent not `succeeded`: `setup_not_completed`; an unknown session: Stripe's
+  `resource_missing`. Listed as `completeMethodSetup` by `capabilities()`.
+- Tests: `StripeSavedMethodsTest` (8), the contract suite's setup and its completion on recorded
+  answers (`StripeContractTest`).
+
+### Changed
+- Requires `omnisense/omnitrade` `^1.2` (`Request\CompleteMethodSetup`).
+
 ## [1.1.0] - 2026-11-13
 
 Saved payment methods and their off-session charge. Additive: nothing that worked before changes,

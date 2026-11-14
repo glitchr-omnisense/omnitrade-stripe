@@ -21,7 +21,7 @@
         "omnipay/common": "^3.0",
         "omnipay/stripe": "^3.2",
         "omnisense/contracts": "^1.0",
-        "omnisense/omnitrade": "^1.1",
+        "omnisense/omnitrade": "^1.2",
         "php-http/discovery": "^1.14",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0",

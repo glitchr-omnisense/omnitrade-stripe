@@ -104,6 +104,7 @@ one line of the amount named by `description` (else `reference`); `returnUrl` th
 | `CreateAccount`, `AccountLink`, `FetchAccount` | yes (Connect) |
 | `Subscribe`, `FetchSubscription`, `CancelSubscription`, `SubscriptionPortal` | yes |
 | `SetupMethod`, `FetchSavedMethods`, `RemoveSavedMethod` (1.1) | yes (Checkout in setup mode, a customer's PaymentMethods) |
+| `CompleteMethodSetup` (1.2) | yes (the session's SetupIntent's PaymentMethod, read: nothing left to do at Stripe) |
 | `Purchase` with `Payment::$savedMethod` (1.1) | yes (a PaymentIntent confirmed off-session, 3-D Secure through the bank's page) |
 
 ## Behaviour
@@ -159,6 +160,22 @@ a card labelled "Visa •••• 4242" with its brand, last four digits and ex
 number, which Stripe does not give anyway. `RemoveSavedMethod($customer, $reference)` reads the
 method first and detaches it (`POST /v1/payment_methods/{id}/detach`) only when it is that
 customer's; another's is a `ProviderException` with code `not_this_customer`, nothing detached.
+
+**Completing a setup (1.2).** Back on `returnUrl`, the buyer brings nothing with them: Stripe
+redirects to the `success_url` as given (this package puts no `{CHECKOUT_SESSION_ID}` in it), so the
+host keeps `MethodSetup::$reference` (the session's `cs_...`). `CompleteMethodSetup($reference,
+$customer)` reads the session with its SetupIntent's method expanded (`GET
+/v1/checkout/sessions/{id}?expand[]=setup_intent.payment_method`,
+[the session's setup_intent](https://docs.stripe.com/api/checkout/sessions/object#checkout_session_object-setup_intent),
+[the SetupIntent's payment_method](https://docs.stripe.com/api/setup_intents/object#setup_intent_object-payment_method)):
+a session in `setup` mode, of that customer, `complete`, whose SetupIntent `succeeded`, answers its
+PaymentMethod as a `SavedMethod` (the session's customer when the method names none). Nothing is
+sent but that read: Checkout attached the method when the buyer confirmed, so asked twice it
+answers the same method. Another customer's session, one not in setup mode, or an id that is not a
+`cs_...` (nothing asked then): `not_this_customer` (`CompleteMethodSetup::NOT_THIS_CUSTOMER`). A
+session still `open` (the buyer went back) or `expired`, or a SetupIntent not `succeeded`
+(`requires_payment_method`, `requires_action`, `canceled`): `setup_not_completed`
+(`CompleteMethodSetup::NOT_COMPLETED`). An unknown session: Stripe's `resource_missing`.
 
 **Charging a saved method (1.1).** A `Payment` with `savedMethod` (and the customer in
 `$customer->reference`) is a PaymentIntent created and confirmed at once (`POST
@@ -323,7 +340,7 @@ failure](https://github.com/glitchr-omnisense/omnitrade/blob/1.x/docs/errors.md#
 
 ## Verified, and not
 
-Tested offline, 44 tests on answers shaped as Stripe's API reference gives them:
+Tested offline, 46 tests on answers shaped as Stripe's API reference gives them:
 `Tests/StripeGatewayTest.php` (a Checkout session opened, a session fetched, a refund on its
 charge with its idempotency key, a refund without an amount in full, a refunded session fetched REFUNDED, the shipping as Checkout's
 shipping rate and a discount charged as one line, a webhook checked then read, the payment methods),
@@ -333,7 +350,9 @@ subscription started on Checkout, read, stopped and managed, the account and sub
 `Tests/StripeSavedMethodsTest.php` (1.1: a card saved on Checkout's setup page for a customer
 made for it, the customer's cards listed and only theirs detached, a saved card charged
 off-session once, a refusal with its decline code, the bank's check sending the buyer to its page
-then the webhook saying paid, the bank's check without a page to come back to),
+then the webhook saying paid, the bank's check without a page to come back to; 1.2: the setup
+completed from the session's SetupIntent, read only and the same method twice, a session still
+open, expired, another customer's, unknown or not a session's id),
 `Tests/StripeCatalogueTest.php` (no stock, pages, `updatedSince` among each page, search, a variant
 per price, products without prices and recurring prices, addresses and unknown ids, product and
 price events) and `Tests/StripeContractTest.php`, the family's conformance suite. The suite found
@@ -343,7 +362,10 @@ omnipay's network failures escaping as omnipay's exception; they now go through
 Not verified: no call was made to Stripe, in test mode or live; no recorded answer was captured
 from a real account (the shipping rate, the expanded charge, the full refund, the setup session,
 the off-session intent, its 402 body and the confirmation's `redirect_to_url` follow Stripe's API
-reference).
+reference). To verify in a sandbox for 1.2: a setup session read on return has `status`
+`complete` and the expanded `setup_intent.payment_method` (with the API version 2020-08-27 the
+package sends), its PaymentMethod's `customer` set, and the session's `status` while the buyer is
+still on the page or after cancelling (`open`), then `expired`.
 
 ## Responsibility
 

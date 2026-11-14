@@ -9,6 +9,7 @@ use Omnitrade\Model\Money;
 use Omnitrade\Model\Payment;
 use Omnitrade\Model\PaymentMethod;
 use Omnitrade\Model\Status;
+use Omnitrade\Request\CompleteMethodSetup;
 use Omnitrade\Request\FetchSavedMethods;
 use Omnitrade\Request\RemoveSavedMethod;
 use Omnitrade\Request\SetupMethod;
@@ -19,8 +20,9 @@ use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
 /**
- * Saved methods (1.1), on answers shaped as Stripe's (API 2020-08-27), no real call: a card saved
- * on Checkout's setup page, listed, detached; a payment charging it off-session - paid at once,
+ * Saved methods (1.1, the setup completed 1.2), on answers shaped as Stripe's (API 2020-08-27), no
+ * real call: a card saved on Checkout's setup page, read from the session once the buyer is back,
+ * listed, detached; a payment charging it off-session - paid at once,
  * refused, or held by the bank's 3-D Secure check and finished by the webhook.
  */
 final class StripeSavedMethodsTest extends TestCase
@@ -46,6 +48,10 @@ final class StripeSavedMethodsTest extends TestCase
             return match (true) {
                 'POST' === $method && '/v1/customers' === $path => $json(['id' => 'cus_new', 'object' => 'customer', 'email' => $sent['email'] ?? null]),
                 'POST' === $method && '/v1/checkout/sessions' === $path => $json(['id' => 'cs_test_setup', 'object' => 'checkout.session', 'mode' => 'setup', 'status' => 'open', 'customer' => $sent['customer'], 'url' => 'https://checkout.stripe.com/c/pay/cs_test_setup']),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_setup' === $path => $json(self::setupSession('complete', 'cus_new', 'succeeded', self::card('pm_new', 'cus_new', 'visa', '4242', 2030))),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_open' === $path => $json(self::setupSession('open', 'cus_new', 'requires_payment_method', null)),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_expired' === $path => $json(self::setupSession('expired', 'cus_new', 'canceled', null)),
+                'GET' === $method && '/v1/checkout/sessions/cs_test_other' === $path => $json(self::setupSession('complete', 'cus_someone_else', 'succeeded', self::card('pm_other', 'cus_someone_else', 'visa', '1881', 2029))),
                 'GET' === $method && '/v1/payment_methods' === $path => $json(['object' => 'list', 'data' => [self::card('pm_new', 'cus_new', 'visa', '4242', 2030), self::card('pm_old', 'cus_new', 'mastercard', '4444', 2027)]]),
                 'GET' === $method && '/v1/payment_methods/pm_new' === $path => $json(self::card('pm_new', 'cus_new', 'visa', '4242', 2030)),
                 'GET' === $method && '/v1/payment_methods/pm_other' === $path => $json(self::card('pm_other', 'cus_someone_else', 'visa', '1881', 2029)),
@@ -93,6 +99,57 @@ final class StripeSavedMethodsTest extends TestCase
         $gateway->execute(new SetupMethod(new Customer('alice@example.org', reference: 'cus_new'), 'https://forge.example/hub/saved'));
         self::assertCount($before + 1, $this->calls, 'a known customer: no new one');
         self::assertSame(['POST', '/v1/checkout/sessions', 'cus_new'], [$this->calls[$before][0], $this->calls[$before][1], Data::of($this->calls[$before][2])->get('customer')]);
+    }
+
+    /**
+     * Back on success_url, nothing is left to do at Stripe: Checkout's SetupIntent attached the
+     * method to the customer when the buyer confirmed. The session is read with its SetupIntent's
+     * method expanded (https://docs.stripe.com/api/checkout/sessions/object#checkout_session_object-setup_intent,
+     * https://docs.stripe.com/api/setup_intents/object#setup_intent_object-payment_method).
+     */
+    public function testBackOnTheReturnUrlTheSessionsSavedMethodIsAnswered(): void
+    {
+        $gateway = $this->gateway();
+        self::assertTrue($gateway->supports(CompleteMethodSetup::class));
+        self::assertTrue($gateway->capabilities()->supports('completeMethodSetup'));
+
+        $method = $gateway->execute(new CompleteMethodSetup('cs_test_setup', 'cus_new'))->getMethod();
+
+        self::assertNotNull($method);
+        self::assertSame(['pm_new', 'cus_new', 'Visa •••• 4242', PaymentMethod::CARD, 12, 2030], [$method->reference, $method->customer, $method->label, $method->kind, $method->expiryMonth, $method->expiryYear]);
+        self::assertCount(1, $this->calls, 'a read, nothing sent');
+        self::assertSame(['GET', '/v1/checkout/sessions/cs_test_setup'], [$this->calls[0][0], $this->calls[0][1]]);
+        self::assertSame(['setup_intent.payment_method'], $this->calls[0][2]['expand'] ?? null);
+        self::assertSame('pm_new', $gateway->execute(new CompleteMethodSetup('cs_test_setup', 'cus_new'))->getMethod()?->reference, 'asked twice, the same method');
+        self::assertSame('pm_new', $gateway->execute(new CompleteMethodSetup('cs_test_setup'))->getMethod()?->reference, 'no customer named: not checked');
+    }
+
+    public function testASetupNotFinishedOrAnotherCustomersSavesNothing(): void
+    {
+        $gateway = $this->gateway();
+        foreach ([
+            ['cs_test_open', 'cus_new', CompleteMethodSetup::NOT_COMPLETED],
+            ['cs_test_expired', 'cus_new', CompleteMethodSetup::NOT_COMPLETED],
+            ['cs_test_other', 'cus_new', CompleteMethodSetup::NOT_THIS_CUSTOMER],
+            ['cs_test_unknown', 'cus_new', 'resource_missing'],
+        ] as [$reference, $customer, $code]) {
+            try {
+                $gateway->execute(new CompleteMethodSetup($reference, $customer));
+                self::fail($reference.' completed');
+            } catch (ProviderException $e) {
+                self::assertSame($code, $e->providerCode, $reference);
+            }
+        }
+        $this->calls = [];
+        foreach (['pm_new', '../v1/customers', 'cs_test_setup/../x'] as $reference) {
+            try {
+                $gateway->execute(new CompleteMethodSetup($reference, 'cus_new'));
+                self::fail($reference.' completed');
+            } catch (ProviderException $e) {
+                self::assertSame(CompleteMethodSetup::NOT_THIS_CUSTOMER, $e->providerCode);
+            }
+        }
+        self::assertSame([], $this->calls, 'not a session\'s id: nothing asked');
     }
 
     public function testTheCustomersMethodsAreListedAndOnlyTheirsDetached(): void
@@ -222,6 +279,19 @@ final class StripeSavedMethodsTest extends TestCase
             metadata: ['order' => 'F-7'],
             savedMethod: 'pm_new',
         );
+    }
+
+    /**
+     * A Checkout session in setup mode, its SetupIntent and that intent's method expanded.
+     *
+     * @param array<string, mixed>|null $method
+     *
+     * @return array<string, mixed>
+     */
+    private static function setupSession(string $status, string $customer, string $intentStatus, ?array $method): array
+    {
+        return ['id' => 'cs_test_setup', 'object' => 'checkout.session', 'mode' => 'setup', 'status' => $status, 'payment_status' => 'no_payment_required', 'customer' => $customer, 'url' => 'complete' === $status ? null : 'https://checkout.stripe.com/c/pay/cs_test_setup', 'metadata' => ['site' => 'forge'],
+            'setup_intent' => ['id' => 'seti_test_1', 'object' => 'setup_intent', 'status' => $intentStatus, 'usage' => 'off_session', 'customer' => $customer, 'payment_method' => $method]];
     }
 
     /** @return array<string, mixed> */
